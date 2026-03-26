@@ -130,7 +130,7 @@ qswat_delineate <- function(project,
     quiet = quiet
   )
   if (!is.null(project$outlet_file)) {
-    ad8_args$input_outlet = project$outlet_file
+    ad8_args$outlet_file = project$outlet_file
   }
   ad8_file <- do.call(traudem::taudem_aread8, ad8_args)
   project$ad8_file <- ad8_file
@@ -161,7 +161,7 @@ qswat_delineate <- function(project,
     moved_outlet <- traudem::taudem_moveoutletstostream(
       input_d8flowdir = project$p_file,
       input_stream_raster = project$src_stream_file,
-      input_outlet = project$outlet_file,
+      outlet_file = project$outlet_file,
       output_moved_outlet = file.path(project$project_dir, "Watershed",
                                        "Shapes", "moved_outlet.shp"),
       quiet = quiet
