@@ -44,7 +44,7 @@ test_that("full delineation workflow runs with TauDEM", {
     soil_lookup = soil_lookup
   )
 
-  project <- qswat_delineate(project, threshold = 500, quiet = TRUE)
+  project <- qswat_delineate(project, threshold = 500, quiet = FALSE)
 
   expect_false(is.null(project$fel_file))
   expect_true(file.exists(project$fel_file))
