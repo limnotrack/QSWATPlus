@@ -216,12 +216,12 @@ Higher thresholds reduce the number of HRUs but may oversimplify the landscape.
 
 ```{r database}
 # Write the project database
-db_path <- qswat_write_database(project, overwrite = TRUE)
+project <- qswat_write_database(project, overwrite = TRUE)
 
 # Verify the database
 library(DBI)
 library(RSQLite)
-con <- dbConnect(SQLite(), db_path)
+con <- dbConnect(SQLite(), project$db_file)
 
 # List tables
 cat("Database tables:\n")

@@ -96,7 +96,9 @@ qswat_write_database <- function(project,
   .write_point_table(con)
 
   message("Database written to: ", db_file)
-  invisible(db_file)
+  project$db_file <- db_file
+  # invisible(db_file)
+  return(project)
 }
 
 

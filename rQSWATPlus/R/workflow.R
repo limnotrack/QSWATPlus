@@ -112,7 +112,7 @@ qswat_run <- function(project_dir,
 
   # Step 5: Write database
   if (!quiet) message("\n=== Step 5/5: Writing database ===")
-  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+  project <- qswat_write_database(project, db_file = db_file, overwrite = TRUE)
 
   if (!quiet) message("\n=== QSWATPlus workflow complete! ===")
   return(project)

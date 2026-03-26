@@ -175,7 +175,9 @@ qswat_setup <- function(project_dir,
     hru_data = NULL,
     basin_data = NULL,
     stream_threshold = NULL,
-    channel_threshold = NULL
+    channel_threshold = NULL,
+    # Database file for output
+    db_file = NULL
   )
 
   class(project) <- "qswat_project"
@@ -193,6 +195,9 @@ qswat_setup <- function(project_dir,
 print.qswat_project <- function(x, ...) {
   cat("QSWATPlus Project\n")
   cat("  Directory:", x$project_dir, "\n")
+  if (!is.null(x$db_file)) {
+    cat("  Sqlite database:", x$db_file, "\n")
+  }
   cat("  DEM:", basename(x$dem_file), "\n")
   cat("  Dimensions:", x$nrow, "x", x$ncol, "\n")
   
