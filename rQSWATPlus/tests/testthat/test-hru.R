@@ -80,6 +80,9 @@ test_that("HRU creation works with delineated project", {
   slopes <- qswat_create_slope_classes(c(0, 5, 15, 9999))
 
   project <- qswat_create_hrus(project, lu, soil_lkp, slopes)
+  
+  # Write the project database
+  db_path <- qswat_write_database(project, overwrite = TRUE)
 
   expect_false(is.null(project$hru_data))
   expect_true(nrow(project$hru_data) > 0)
