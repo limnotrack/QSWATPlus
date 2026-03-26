@@ -1,0 +1,36 @@
+Package: rQSWATPlus
+Title: R Interface to QSWATPlus for SWAT+ Model Setup
+Version: 0.1.0
+Authors@R: 
+    person("QSWATPlus Contributors", role = c("aut", "cre"),
+           email = "qswatplus@example.com")
+Author: QSWATPlus Contributors [aut, cre]
+Maintainer: QSWATPlus Contributors <qswatplus@example.com>
+Description: Provides R functions to replicate the QSWATPlus QGIS plugin
+    workflow for setting up SWAT+ (Soil and Water Assessment Tool) models.
+    Includes watershed delineation using TauDEM (via the 'traudem' package),
+    Hydrologic Response Unit (HRU) creation from landuse, soil, and slope
+    data, and generation of SWAT+ project databases. The package supports
+    the complete workflow from DEM processing to database creation.
+License: GPL (>= 3) + file LICENSE
+URL: https://github.com/limnotrack/QSWATPlus
+BugReports: https://github.com/limnotrack/QSWATPlus/issues
+Depends:
+    R (>= 4.1.0)
+Imports:
+    terra,
+    sf,
+    RSQLite,
+    DBI
+Suggests:
+    traudem,
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    withr
+Config/testthat/edition: 3
+Encoding: UTF-8
+LazyData: false
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+VignetteBuilder: knitr

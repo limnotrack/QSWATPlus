@@ -1,0 +1,276 @@
+---
+title: "Data Requirements for rQSWATPlus"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Data Requirements for rQSWATPlus}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+## Overview
+
+Setting up a SWAT+ model with `rQSWATPlus` requires several spatial datasets 
+and lookup tables. This vignette describes each input, its required format, and 
+best practices for data preparation.
+
+## Required Raster Data
+
+### Digital Elevation Model (DEM)
+
+The DEM is the foundation for watershed delineation. It provides elevation 
+values used to calculate flow directions, slopes, and drainage patterns.
+
+**Format Requirements:**
+- **File format**: GeoTIFF (`.tif`) recommended; any GDAL-supported raster format
+- **Data type**: Numeric (integer or float)
+- **CRS**: Projected coordinate system (e.g., UTM) strongly recommended
+- **Units**: Elevation in meters preferred
+- **Resolution**: Depends on watershed size; 30m (SRTM), 10m (NED), or 
+  finer for small watersheds
+- **Coverage**: Must cover the entire study watershed plus some buffer
+
+```{r}
+library(terra)
+dem <- rast("path/to/dem.tif")
+dem
+#> class       : SpatRat
+#> dimensions  : 299, 209, 1  (nrow, ncol, nlyr)
+#> resolution  : 30, 30  (x, y)
+#> extent      : 567000, 573270, 6205000, 6213970  (xmin, xmax, ymin, ymax)
+#> coord. ref. : ETRS89 / UTM zone 32N (EPSG:25832)
+#> source      : dem.tif
+#> name        : dem
+```
+
+**Sources:**
+- [SRTM](https://earthexplorer.usgs.gov/) - 30m global
+- [Copernicus DEM](https://spacedata.copernicus.eu/) - 30m global
+- [USGS NED](https://apps.nationalmap.gov/) - 10m US
+- National elevation services
+
+**Tips:**
+- Ensure the DEM covers the area beyond your watershed boundary (TauDEM needs 
+  context for flow direction calculation)
+- Fill any artifacts or voids before use (though TauDEM's pit removal handles 
+  small depressions)
+- Projected CRS is required for accurate area/slope calculations
+- Use consistent units (meters) for both horizontal and vertical
+
+### Land Use Raster
+
+The land use raster classifies land cover types across your study area.
+
+**Format Requirements:**
+- **File format**: GeoTIFF recommended
+- **Data type**: Integer (categorical values)
+- **CRS**: Same as DEM (or will be reprojected)
+- **Coverage**: Must cover the watershed
+- **Values**: Integer codes that map to SWAT+ land use types via lookup table
+
+```{r}
+landuse <- rast("path/to/landuse.tif")
+freq(landuse)
+#>   layer value  count
+#> 1     1     0  15234
+#> 2     1  1100    567
+#> 3     1  1120    123
+#> ...
+```
+
+**Sources:**
+- [CORINE Land Cover](https://land.copernicus.eu/) - Europe
+- [NLCD](https://www.mrlc.gov/) - US
+- [ESA WorldCover](https://esa-worldcover.org/) - 10m global
+- National land use databases
+
+### Soil Raster
+
+The soil raster identifies soil types/map units across the study area.
+
+**Format Requirements:**
+- **File format**: GeoTIFF recommended
+- **Data type**: Integer (soil map unit IDs)
+- **CRS**: Same as DEM (or will be reprojected)
+- **Values**: Integer codes mapping to soil names via lookup table
+
+```{r}
+soil <- rast("path/to/soil.tif")
+freq(soil)
+#>   layer value count
+#> 1     1  1011  2345
+#> 2     1  1018   678
+#> ...
+```
+
+**Sources:**
+- [STATSGO/SSURGO](https://websoilsurvey.nrcs.usda.gov/) - US
+- [SoilGrids](https://soilgrids.org/) - Global
+- [European Soil Database](https://esdac.jrc.ec.europa.eu/) - Europe
+- National soil surveys
+
+## Optional Vector Data
+
+### Outlet Points (Shapefile)
+
+Outlet points define where rivers exit the watershed. If provided, the 
+watershed is delineated upstream of these points.
+
+**Format Requirements:**
+- **File format**: Shapefile (`.shp` with `.shx`, `.dbf`, `.prj`)
+- **Geometry**: Point
+- **CRS**: Same as DEM
+- **Attributes**: Optional; IDs are auto-assigned
+
+If no outlets are provided, TauDEM will delineate the entire DEM extent.
+
+## Lookup Tables (CSV)
+
+### Land Use Lookup
+
+Maps integer raster values to SWAT+ land use codes.
+
+**Format**: CSV with at least two columns
+
+```
+"Value","Landuse"
+0000,PAST
+1100,UTRN
+1110,URHD
+1120,URMD
+1210,UIDU
+2110,AGRL
+...
+```
+
+The first column contains the raster integer value, the second contains the 
+SWAT+ land use code.
+
+**Common SWAT+ Land Use Codes:**
+
+| Code | Description |
+|------|-------------|
+| AGRL | Agricultural land (generic) |
+| AGRR | Agricultural row crops |
+| CORN | Corn |
+| SOYB | Soybeans |
+| WHEA | Wheat |
+| FRSD | Deciduous forest |
+| FRSE | Evergreen forest |
+| FRST | Mixed forest |
+| PAST | Pasture |
+| RNGE | Range/grassland |
+| URBN | Urban (generic) |
+| URHD | Urban high density |
+| URMD | Urban medium density |
+| UTRN | Urban transportation |
+| WATR | Water |
+| WETF | Forested wetland |
+| WETL | Wetland |
+| BARR | Barren |
+| SWRN | Southwestern range |
+
+### Soil Lookup
+
+Maps integer raster values to soil names from the SWAT+ soils database.
+
+**Format**: CSV with at least two columns
+
+```
+VALUE,NAME
+1011,DK1011
+1018,DK1018
+1021,DK1021
+...
+```
+
+Soil names should correspond to entries in your SWAT+ soil parameter database.
+
+## Slope Class Definition
+
+Slope classes subdivide HRUs by terrain steepness. They are defined using 
+percentage breakpoints:
+
+```{r}
+library(rQSWATPlus)
+
+# Single slope class (no subdivision by slope)
+slopes <- qswat_create_slope_classes(c(0, 9999))
+
+# Three slope classes: 0-5%, 5-15%, >15%
+slopes <- qswat_create_slope_classes(c(0, 5, 15, 9999))
+
+# Five slope classes
+slopes <- qswat_create_slope_classes(c(0, 2, 5, 10, 25, 9999))
+```
+
+## Data Preparation Checklist
+
+Before running `rQSWATPlus`, verify:
+
+- [ ] **DEM**: GeoTIFF, projected CRS, covers watershed + buffer
+- [ ] **Land use**: Integer raster, covers watershed
+- [ ] **Soil**: Integer raster, covers watershed
+- [ ] **Land use lookup**: CSV mapping all raster values to SWAT+ codes
+- [ ] **Soil lookup**: CSV mapping all raster values to soil names
+- [ ] **Outlets** (optional): Point shapefile in same CRS as DEM
+- [ ] **CRS consistency**: All spatial data should share the same CRS 
+  (reprojection is handled but may introduce artifacts)
+- [ ] **Coverage**: All rasters cover the watershed extent
+- [ ] **No data**: NoData values are properly set in all rasters
+
+## Example: Inspecting the Included Ravn Dataset
+
+```{r, eval = TRUE}
+library(rQSWATPlus)
+
+# Paths to included example data
+dem_path <- system.file("extdata", "ravn_dem.tif", package = "rQSWATPlus")
+lu_path <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
+soil_path <- system.file("extdata", "ravn_soil.tif", package = "rQSWATPlus")
+lu_csv <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
+soil_csv <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
+```
+
+```{r, eval = FALSE}
+library(terra)
+
+# Inspect DEM
+dem <- rast(dem_path)
+dem
+plot(dem, main = "Ravn DEM")
+
+# Check land use values and their lookup
+lu <- rast(lu_path)
+lu_lookup <- read.csv(lu_csv)
+head(lu_lookup)
+
+# Check soil values and their lookup
+soil <- rast(soil_path)
+soil_lookup <- read.csv(soil_csv)
+head(soil_lookup)
+```
+
+## Coordinate Reference System Notes
+
+- **Projected CRS** (UTM, State Plane, etc.) is required for accurate 
+  calculations
+- If your DEM is in geographic CRS (lat/lon), reproject it first:
+
+```{r}
+# Reproject DEM to UTM
+dem_geo <- rast("dem_wgs84.tif")
+dem_proj <- project(dem_geo, "EPSG:32632")  # UTM zone 32N
+writeRaster(dem_proj, "dem_utm.tif")
+```
+
+- All rasters should ideally share the same CRS to avoid reprojection artifacts
+- The package will attempt to align rasters internally, but pre-aligned data 
+  gives best results

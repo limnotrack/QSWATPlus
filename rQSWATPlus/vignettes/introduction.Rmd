@@ -1,0 +1,167 @@
+---
+title: "Introduction to rQSWATPlus"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to rQSWATPlus}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+## Overview
+
+The `rQSWATPlus` package provides R functions to set up SWAT+ (Soil and Water 
+Assessment Tool) hydrological models. It replicates the workflow of the 
+[QSWATPlus](https://github.com/limnotrack/QSWATPlus) QGIS plugin, bringing 
+SWAT+ model setup capabilities to R users.
+
+SWAT+ is a watershed-scale model used for simulating hydrology, water quality, 
+and land management impacts. Setting up a SWAT+ model requires several spatial 
+processing steps that this package automates.
+
+## Prerequisites
+
+### TauDEM Installation
+
+Watershed delineation in `rQSWATPlus` relies on 
+[TauDEM](https://hydrology.usu.edu/taudem/taudem5/) (Terrain Analysis Using 
+Digital Elevation Models) via the [`traudem`](https://github.com/lucarraro/traudem/) 
+R package.
+
+You need to install TauDEM and its dependencies (GDAL and MPI) on your system.
+See the traudem installation vignette for platform-specific instructions:
+
+```{r}
+# Install traudem from CRAN
+install.packages("traudem")
+
+# Or the development version
+# devtools::install_github("lucarraro/traudem")
+
+# Check your TauDEM installation
+traudem::taudem_sitrep()
+```
+
+### R Package Dependencies
+
+```{r}
+# Install rQSWATPlus
+# devtools::install_github("limnotrack/QSWATPlus", subdir = "rQSWATPlus")
+
+# Key dependencies (installed automatically):
+# - terra: Raster data handling
+# - sf: Vector/shapefile processing
+# - RSQLite: Database output
+# - traudem: TauDEM interface
+```
+
+## Quick Start
+
+The basic workflow has five steps:
+
+```{r}
+library(rQSWATPlus)
+
+# 1. Setup project
+project <- qswat_setup(
+  project_dir = "my_swatplus_project",
+  dem_file = "path/to/dem.tif",
+  landuse_file = "path/to/landuse.tif",
+  soil_file = "path/to/soil.tif",
+  landuse_lookup = "path/to/landuse_lookup.csv",
+  soil_lookup = "path/to/soil_lookup.csv",
+  outlet_file = "path/to/outlets.shp"  # optional
+)
+
+# 2. Delineate watershed
+project <- qswat_delineate(project, threshold = 500)
+
+# 3. Create stream network
+project <- qswat_create_streams(project)
+
+# 4. Create HRUs
+lu_lookup <- qswat_read_landuse_lookup("path/to/landuse_lookup.csv")
+soil_lookup <- qswat_read_soil_lookup("path/to/soil_lookup.csv")
+slopes <- qswat_create_slope_classes(c(0, 5, 15, 9999))
+
+project <- qswat_create_hrus(
+  project, lu_lookup, soil_lookup, slopes
+)
+
+# 5. Write database
+qswat_write_database(project)
+```
+
+Or use the convenience function for the entire workflow:
+
+```{r}
+project <- qswat_run(
+  project_dir = "my_swatplus_project",
+  dem_file = "path/to/dem.tif",
+  landuse_file = "path/to/landuse.tif",
+  soil_file = "path/to/soil.tif",
+  landuse_lookup = "path/to/landuse_lookup.csv",
+  soil_lookup = "path/to/soil_lookup.csv",
+  threshold = 500,
+  slope_breaks = c(0, 5, 15, 9999)
+)
+```
+
+## Workflow Steps Explained
+
+### 1. Project Setup
+
+`qswat_setup()` creates a project directory structure and validates your input 
+files. It checks that rasters are readable and copies source files into the 
+project directory.
+
+### 2. Watershed Delineation
+
+`qswat_delineate()` runs the full TauDEM delineation workflow:
+
+1. **Pit removal** (`pitremove`): Fill depressions in the DEM
+2. **D8 flow direction** (`d8flowdir`): Calculate flow directions
+3. **D-infinity flow direction** (`dinfflowdir`): Calculate slopes and angles
+4. **Contributing area** (`aread8`): Compute flow accumulation
+5. **Stream threshold** (`threshold`): Define stream/channel networks
+6. **Move outlets** (`moveoutletstostreams`): Snap outlets to streams
+7. **Stream network** (`streamnet`): Generate topology and watersheds
+
+The `threshold` parameter controls the minimum drainage area (in cells) to 
+define a stream. A lower threshold creates more streams and smaller subbasins.
+
+### 3. Stream Network
+
+`qswat_create_streams()` extracts the stream/channel topology from the TauDEM 
+output, including stream links, downstream connections, stream orders, and 
+drainage areas.
+
+### 4. HRU Creation
+
+`qswat_create_hrus()` overlays land use, soil, and slope data on the delineated 
+watershed. Each unique combination of subbasin × land use × soil × slope class 
+creates a Hydrologic Response Unit (HRU).
+
+Area thresholds can be used to filter out small HRUs:
+- `landuse_threshold`: Minimum % of subbasin area for a land use
+- `soil_threshold`: Minimum % of land use area for a soil type
+- `slope_threshold`: Minimum % of soil area for a slope class
+
+### 5. Database Output
+
+`qswat_write_database()` creates a SQLite database compatible with the SWAT+ 
+Editor for further parameterization and model execution.
+
+## Next Steps
+
+- See `vignette("data-requirements")` for detailed input data format 
+  specifications
+- See `vignette("workflow")` for a complete worked example using the included 
+  Ravn watershed dataset
