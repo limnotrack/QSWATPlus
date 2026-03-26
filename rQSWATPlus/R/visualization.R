@@ -22,8 +22,13 @@ qswat_plot_dem <- function(project, title = "DEM Elevation",
   .check_tmap()
   dem <- terra::rast(project$dem_file)
   tmap::tm_shape(dem) +
-    tmap::tm_raster(palette = palette, title = "Elevation (m)", ...) +
-    tmap::tm_layout(main.title = title, legend.outside = TRUE)
+    tmap::tm_raster(
+      col.scale =  tmap::tm_scale_continuous(values = palette),
+      col.legend = tmap::tm_legend(title = "Elevation (m)", 
+                                   position = tmap::tm_pos_out("right",
+                                                               "center"))
+      ) +
+    tmap::tm_title(text = title)
 }
 
 
@@ -67,8 +72,10 @@ qswat_plot_landuse <- function(project, landuse_lookup = NULL,
   )
 
   tmap::tm_shape(label_rast) +
-    tmap::tm_raster(title = "Land Use", style = "cat", ...) +
-    tmap::tm_layout(main.title = title, legend.outside = TRUE)
+    tmap::tm_raster(col.scale = tmap::tm_scale_categorical(),
+                    col.legend = tmap::tm_legend(title = "Land Use", 
+                                                 position = tmap::tm_pos_out("right",
+                                                                             "center")))
 }
 
 
@@ -111,8 +118,10 @@ qswat_plot_soil <- function(project, soil_lookup = NULL,
   )
 
   tmap::tm_shape(label_rast) +
-    tmap::tm_raster(title = "Soil", style = "cat", ...) +
-    tmap::tm_layout(main.title = title, legend.outside = TRUE)
+    tmap::tm_raster(col.scale = tmap::tm_scale_categorical(),
+                    col.legend = tmap::tm_legend(title = "Soil", 
+                                                 position = tmap::tm_pos_out("right",
+                                                                             "center")))
 }
 
 
@@ -150,16 +159,22 @@ qswat_plot_streams <- function(project, show_dem = TRUE,
   m <- if (show_dem) {
     dem <- terra::rast(project$dem_file)
     tmap::tm_shape(dem) +
-      tmap::tm_raster(palette = "Greys", title = "Elevation (m)",
-                      alpha = 0.6)
+      # tmap::tm_raster(palette = "Greys", title = "Elevation (m)",
+      #                 alpha = 0.6)
+      tmap::tm_raster(
+        col.scale =  tmap::tm_scale_continuous(values = "brewer.greys"), 
+        col_alpha = 0.6,
+        col.legend = tmap::tm_legend(title = "Elevation (m)", 
+                                     position = tmap::tm_pos_out("right",
+                                                                 "center")))
   } else {
     NULL
   }
 
   m <- m +
     tmap::tm_shape(project$streams_sf) +
-    tmap::tm_lines(col = "blue", lwd = 2, ...) +
-    tmap::tm_layout(main.title = title, legend.outside = TRUE)
+    tmap::tm_lines(col = "blue", lwd = 2) +
+    tmap::tm_title(text = title)
   m
 }
 
@@ -195,9 +210,13 @@ qswat_plot_watershed <- function(project,
 
   wshed <- terra::rast(project$watershed_file)
   tmap::tm_shape(wshed) +
-    tmap::tm_raster(title = "Subbasin", style = "cat",
-                    palette = "Set3", ...) +
-    tmap::tm_layout(main.title = title, legend.outside = TRUE)
+    tmap::tm_raster(
+      col.scale =  tmap::tm_scale_categorical(values = "brewer.set3"),
+      col.legend = tmap::tm_legend(title = "Subbasin", 
+                                   position = tmap::tm_pos_out("right",
+                                                               "center"))
+    ) +
+    tmap::tm_title(text  = title)
 }
 
 
