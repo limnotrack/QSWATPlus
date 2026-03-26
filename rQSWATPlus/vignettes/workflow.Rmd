@@ -11,7 +11,7 @@ vignette: >
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
-  eval = FALSE
+  eval = TRUE
 )
 ```
 
@@ -120,7 +120,7 @@ project <- qswat_delineate(
   project,
   threshold = 500,         # Stream threshold (cells)
   channel_threshold = 50,  # Channel threshold (finer network)
-  quiet = FALSE            # Show TauDEM progress messages
+  quiet = TRUE            # Show TauDEM progress messages
 )
 ```
 
