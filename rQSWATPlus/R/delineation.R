@@ -42,10 +42,6 @@
 #' project <- qswat_delineate(project, threshold = 100)
 #' }
 #' 
-#' @importFrom traudem taudem_pitremove taudem_d8flowdir taudem_exec
-#' taudem_aread8 taudem_threshold taudem_moveoutletstostream
-#' @importFrom cli cli_abort
-#'
 #' @export
 qswat_delineate <- function(project,
                             threshold = NULL,

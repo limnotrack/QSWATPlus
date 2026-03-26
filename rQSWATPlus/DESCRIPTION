@@ -22,10 +22,13 @@ Imports:
     sf,
     RSQLite,
     DBI,
-    cli
+    cli,
+    rlang
 Suggests:
     testthat (>= 3.0.0),
     traudem,
+    tmap,
+    ggplot2,
     knitr,
     rmarkdown,
     withr

@@ -49,6 +49,7 @@
 #'   dbListTables
 #' @importFrom RSQLite SQLite
 #' @importFrom utils read.csv
+#' @importFrom rlang .data
 #' @name rQSWATPlus-package
 #' @aliases rQSWATPlus
 #' @keywords internal
