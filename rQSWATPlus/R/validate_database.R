@@ -208,11 +208,12 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
 
     # 5b. Routing percentages sum to ~100 per source
     if ("percent" %in% names(routing)) {
+      pct_tolerance <- 1  # allow 1% rounding error
       pct_sums <- stats::aggregate(
         percent ~ sourceid + sourcecat,
         data = routing, FUN = sum
       )
-      bad_pct <- pct_sums[abs(pct_sums$percent - 100) > 1, ]
+      bad_pct <- pct_sums[abs(pct_sums$percent - 100) > pct_tolerance, ]
       ok <- nrow(bad_pct) == 0
       record(
         "routing:percent_sum",
@@ -322,6 +323,7 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
     visited <- character()
     current <- src
     steps <- 0L
+    # A path can visit at most N unique nodes before repeating (cycle)
     max_steps <- nrow(routing) + 1L
 
     while (steps < max_steps) {
