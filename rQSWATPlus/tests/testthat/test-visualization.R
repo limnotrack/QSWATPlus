@@ -94,19 +94,32 @@ test_that("summary plots validate inputs", {
 })
 
 test_that("tmap plot functions require tmap", {
-  # These skip if tmap not installed (which is expected)
-  project <- structure(list(
-    dem_file = system.file("extdata", "ravn_dem.tif",
-                           package = "rQSWATPlus"),
-    landuse_file = system.file("extdata", "ravn_landuse.tif",
-                               package = "rQSWATPlus"),
-    soil_file = system.file("extdata", "ravn_soil.tif",
-                            package = "rQSWATPlus"),
-    landuse_lookup = system.file("extdata", "ravn_landuse.csv",
-                                 package = "rQSWATPlus"),
-    soil_lookup = system.file("extdata", "ravn_soil.csv",
-                              package = "rQSWATPlus")
-  ), class = "qswat_project")
+  
+  dem <- system.file("extdata", "ravn_dem.tif", package = "rQSWATPlus")
+  landuse <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
+  soil <- system.file("extdata", "ravn_soil.tif", package = "rQSWATPlus")
+  lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
+  soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
+  outlet <- system.file("extdata", "ravn_outlet.shp", package = "rQSWATPlus")
+  
+  skip_if(dem == "", message = "Example data not available")
+  skip_if(outlet == "", message = "Outlet data not available")
+  
+  proj_dir <- file.path(tempdir(), "test_setup_outlet")
+  on.exit(unlink(proj_dir, recursive = TRUE), add = TRUE)
+  
+  project <- qswat_setup(
+    project_dir = proj_dir,
+    dem_file = dem,
+    landuse_file = landuse,
+    soil_file = soil,
+    landuse_lookup = lu_lookup,
+    soil_lookup = soil_lookup,
+    outlet_file = outlet
+  )
+  project <- qswat_delineate(project, threshold = 500, quiet = TRUE)
+  project <- qswat_create_streams(project)
+  
 
   if (!requireNamespace("tmap", quietly = TRUE)) {
     expect_error(qswat_plot_dem(project), "tmap")
@@ -116,6 +129,14 @@ test_that("tmap plot functions require tmap", {
     # If tmap IS installed, just check they return tmap objects
     p <- qswat_plot_dem(project)
     expect_true(inherits(p, "tmap"))
+    p2 <- qswat_plot_landuse(project)
+    expect_true(inherits(p2, "tmap"))
+    p3 <- qswat_plot_soil(project)
+    expect_true(inherits(p3, "tmap"))
+    p4 <- qswat_plot_streams(project)
+    expect_true(inherits(p4, "tmap"))
+    p5 <- qswat_plot_watershed(project)
+    expect_true(inherits(p5, "tmap"))
   }
 })
 
