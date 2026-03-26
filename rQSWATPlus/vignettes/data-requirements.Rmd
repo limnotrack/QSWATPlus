@@ -41,7 +41,7 @@ values used to calculate flow directions, slopes, and drainage patterns.
 library(terra)
 dem <- rast("path/to/dem.tif")
 dem
-#> class       : SpatRat
+#> class       : SpatRaster
 #> dimensions  : 299, 209, 1  (nrow, ncol, nlyr)
 #> resolution  : 30, 30  (x, y)
 #> extent      : 567000, 573270, 6205000, 6213970  (xmin, xmax, ymin, ymax)
