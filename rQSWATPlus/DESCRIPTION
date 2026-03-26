@@ -21,10 +21,11 @@ Imports:
     terra,
     sf,
     RSQLite,
-    DBI
+    DBI,
+    cli
 Suggests:
-    traudem,
     testthat (>= 3.0.0),
+    traudem,
     knitr,
     rmarkdown,
     withr

@@ -41,6 +41,10 @@
 #' # After qswat_setup()
 #' project <- qswat_delineate(project, threshold = 100)
 #' }
+#' 
+#' @importFrom traudem taudem_pitremove taudem_d8flowdir taudem_exec
+#' taudem_aread8 taudem_threshold taudem_moveoutletstostream
+#' @importFrom cli cli_abort
 #'
 #' @export
 qswat_delineate <- function(project,
@@ -103,13 +107,13 @@ qswat_delineate <- function(project,
     output_d8slope = file.path(raster_dir, "sd8.tif"),
     quiet = quiet
   )
-  project$p_file <- d8_result[["output_d8flowdir"]]
-  project$sd8_file <- d8_result[["output_d8slope"]]
+  project$p_file <- d8_result[["output_d8flowdir_grid"]]
+  project$sd8_file <- d8_result[["output_d8slopes_grid"]]
 
   # --- Step 3: D-infinity Flow Direction ---
   if (!quiet) message("Step 3/7: Computing D-infinity flow directions...")
   dinf_result <- traudem::taudem_exec(
-    command = "DinfFlowDir",
+    program = "DinfFlowDir",
     args = c("-fel", fel_file,
              "-slp", file.path(raster_dir, "slp.tif"),
              "-ang", file.path(raster_dir, "ang.tif")),
@@ -187,7 +191,7 @@ qswat_delineate <- function(project,
   }
 
   traudem::taudem_exec(
-    command = "StreamNet",
+    program = "StreamNet",
     args = stream_args,
     quiet = quiet
   )
@@ -195,6 +199,17 @@ qswat_delineate <- function(project,
   project$ord_file <- file.path(raster_dir, "ord.tif")
   project$stream_file <- file.path(shape_dir, "stream.shp")
   project$watershed_file <- file.path(raster_dir, "w.tif")
+  
+  # Check if files were created
+  if (!file.exists(project$stream_file)) {
+    cli::cli_abort("Stream shapefile not created: 
+                   {.file {project$stream_file}}")
+  }
+  if (!file.exists(project$watershed_file)) {
+    cli::cli_abort("Watershed raster not created: 
+                   {.file {project$watershed_file}}")
+  }
+  
 
   # Also create channel network with finer threshold
   if (!quiet) message("  Generating channel network...")
@@ -216,7 +231,7 @@ qswat_delineate <- function(project,
   }
 
   traudem::taudem_exec(
-    command = "StreamNet",
+    program = "StreamNet",
     args = channel_args,
     quiet = quiet
   )
