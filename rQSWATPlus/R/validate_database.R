@@ -155,6 +155,9 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
   routing <- DBI::dbGetQuery(con, "SELECT * FROM gis_routing")
 
   # HRU → LSU (lsu column references gis_lsus.id)
+  # In the rQSWATPlus schema, HRU.lsu maps to the subbasin ID which also
+  # serves as the LSU ID. We allow references to either gis_lsus.id or
+  # gis_subbasins.id since they share the same ID space.
   if (nrow(hrus) > 0 && "lsu" %in% names(hrus) && nrow(lsus) > 0) {
     orphan_hru <- hrus$lsu[!hrus$lsu %in% lsus$id]
     # Also allow referencing subbasins directly

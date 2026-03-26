@@ -667,8 +667,7 @@ qswat_write_database <- function(project,
   }
 
   # Build slope class label
-  slp_label <- paste0(hru_data$slope_class, "-",
-                       hru_data$slope_class)
+  slp_label <- as.character(hru_data$slope_class)
   if (!is.null(slope_classes) && nrow(slope_classes) > 0) {
     slp_label <- slope_classes$label[
       match(hru_data$slope_class, slope_classes$class_id)]
