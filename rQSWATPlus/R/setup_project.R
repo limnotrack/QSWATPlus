@@ -195,8 +195,11 @@ print.qswat_project <- function(x, ...) {
   cat("  Directory:", x$project_dir, "\n")
   cat("  DEM:", basename(x$dem_file), "\n")
   cat("  Dimensions:", x$nrow, "x", x$ncol, "\n")
-  cat("  Cell size:", paste(round(x$cell_size, 2), collapse = " x "), "\n")
-  cat("  Units:", x$units, "\n")
+  
+  if (!is.null(x$cell_size)) {
+    cat("  Cell size:", paste(round(x$cell_size, 2), collapse = " x "), "\n")
+    cat("  Units:", x$units, "\n")
+  }
 
   if (!is.null(x$stream_threshold)) {
     cat("  Stream threshold:", x$stream_threshold, "\n")
