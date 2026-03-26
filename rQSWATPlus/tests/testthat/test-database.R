@@ -23,6 +23,8 @@ test_that("database table creation works", {
   rQSWATPlus:::.create_db_tables(con)
 
   tables <- DBI::dbListTables(con)
+
+  # GIS tables
   expect_true("gis_subbasins" %in% tables)
   expect_true("gis_hrus" %in% tables)
   expect_true("gis_routing" %in% tables)
@@ -32,6 +34,36 @@ test_that("database table creation works", {
   expect_true("gis_deep_aquifers" %in% tables)
   expect_true("gis_water" %in% tables)
   expect_true("gis_points" %in% tables)
+  expect_true("gis_elevationbands" %in% tables)
+  expect_true("gis_landexempt" %in% tables)
+  expect_true("gis_splithrus" %in% tables)
+
+  # project_config
+  expect_true("project_config" %in% tables)
+
+  # Configuration tables
+  expect_true("config_delin" %in% tables)
+  expect_true("config_hru" %in% tables)
+  expect_true("config_landuse" %in% tables)
+  expect_true("config_lsu" %in% tables)
+  expect_true("config_observed" %in% tables)
+  expect_true("config_params" %in% tables)
+  expect_true("config_soil" %in% tables)
+
+  # Intermediate data tables
+  expect_true("BASINSDATA" %in% tables)
+  expect_true("HRUSDATA" %in% tables)
+  expect_true("LSUSDATA" %in% tables)
+  expect_true("WATERDATA" %in% tables)
+
+  # Reference / lookup tables
+  expect_true("global_landuses" %in% tables)
+  expect_true("global_soils" %in% tables)
+  expect_true("global_usersoil" %in% tables)
+  expect_true("plant" %in% tables)
+  expect_true("urban" %in% tables)
+  expect_true("WGEN_User" %in% tables)
+  expect_true("WGEN_User_mon" %in% tables)
 })
 
 test_that("subbasin table write works", {
@@ -129,4 +161,22 @@ test_that("full database write works with mock data", {
 
   channels <- DBI::dbGetQuery(con, "SELECT * FROM gis_channels")
   expect_true(nrow(channels) > 0)
+
+  # Check project_config
+  pc <- DBI::dbGetQuery(con, "SELECT * FROM project_config")
+  expect_equal(nrow(pc), 1)
+  expect_equal(pc$delineation_done, 1)
+  expect_equal(pc$hrus_done, 1)
+
+  # Check BASINSDATA
+  bd <- DBI::dbGetQuery(con, "SELECT * FROM BASINSDATA")
+  expect_equal(nrow(bd), 2)
+
+  # Check HRUSDATA
+  hd <- DBI::dbGetQuery(con, "SELECT * FROM HRUSDATA")
+  expect_equal(nrow(hd), 4)
+
+  # Check LSUSDATA
+  ld <- DBI::dbGetQuery(con, "SELECT * FROM LSUSDATA")
+  expect_equal(nrow(ld), 2)
 })

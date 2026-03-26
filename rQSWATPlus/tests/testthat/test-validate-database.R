@@ -91,20 +91,34 @@ test_that("qswat_check_database detects referential integrity issues", {
   rQSWATPlus:::.create_db_tables(con)
 
   # Write a subbasin
-  DBI::dbExecute(con, "INSERT INTO gis_subbasins VALUES (1,100,5,100,5,0,0,500,400,600,0)")
-  # Write an HRU referencing non-existent subbasin 99
-  DBI::dbExecute(con, "INSERT INTO gis_hrus VALUES (1,99,'AGRL','TX047',1,10,3,0,0,500,50,50,50,100)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_subbasins (id,area,slo1,len1,sll,lat,lon,elev,elevmin,elevmax)
+     VALUES (1,100,5,100,5,0,0,500,400,600)")
+  # Write an HRU referencing non-existent LSU 99
+  DBI::dbExecute(con,
+    "INSERT INTO gis_hrus (id,lsu,arsub,arlsu,landuse,arland,soil,arso,slp,arslp,slope,lat,lon,elev)
+     VALUES (1,99,100,100,'AGRL',100,'TX047',100,'0-5',100,3,0,0,500)")
   # Write a channel for subbasin 1
-  DBI::dbExecute(con, "INSERT INTO gis_channels VALUES (1,1,1,1000,0.01,1.0,0.5,0,0,0)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_channels (id,subbasin,areac,len2,slo2,wid2,dep2,elevmin,elevmax)
+     VALUES (1,1,100,1000,0.01,1.0,0.5,400,600)")
   # Write an LSU
-  DBI::dbExecute(con, "INSERT INTO gis_lsus VALUES (1,0,1,100,5,0,0,500)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_lsus (id,category,channel,area,slope,csl,wid1,dep1,lat,lon,elev)
+     VALUES (1,0,1,100,5,5,1,0.5,0,0,500)")
   # Write routing with outlet
-  DBI::dbExecute(con, "INSERT INTO gis_routing VALUES (1,'sub',0,'outlet',100,'tot')")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_routing (sourceid,sourcecat,sinkid,sinkcat,percent)
+     VALUES (1,'sub',0,'outlet',100)")
+  # Write project_config
+  DBI::dbExecute(con,
+    "INSERT INTO project_config (id,delineation_done,hrus_done,imported_gis,is_lte)
+     VALUES (1,1,1,1,0)")
   DBI::dbDisconnect(con)
 
   result <- qswat_check_database(db_file, verbose = FALSE)
   expect_false(result$passed)
-  expect_true(any(grepl("non-existent subbasin", result$errors)))
+  expect_true(any(grepl("non-existent", result$errors)))
 })
 
 test_that("qswat_check_database detects routing loops", {
@@ -115,20 +129,44 @@ test_that("qswat_check_database detects routing loops", {
   rQSWATPlus:::.create_db_tables(con)
 
   # Write subbasins
-  DBI::dbExecute(con, "INSERT INTO gis_subbasins VALUES (1,100,5,100,5,0,0,500,400,600,0)")
-  DBI::dbExecute(con, "INSERT INTO gis_subbasins VALUES (2,100,5,100,5,0,0,500,400,600,0)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_subbasins (id,area,slo1,len1,sll,lat,lon,elev,elevmin,elevmax)
+     VALUES (1,100,5,100,5,0,0,500,400,600)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_subbasins (id,area,slo1,len1,sll,lat,lon,elev,elevmin,elevmax)
+     VALUES (2,100,5,100,5,0,0,500,400,600)")
   # HRUs
-  DBI::dbExecute(con, "INSERT INTO gis_hrus VALUES (1,1,'AGRL','TX047',1,10,3,0,0,500,50,50,50,100)")
-  DBI::dbExecute(con, "INSERT INTO gis_hrus VALUES (2,2,'AGRL','TX047',1,10,3,0,0,500,50,50,50,100)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_hrus (id,lsu,arsub,arlsu,landuse,arland,soil,arso,slp,arslp,slope,lat,lon,elev)
+     VALUES (1,1,100,100,'AGRL',100,'TX047',100,'0-5',100,3,0,0,500)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_hrus (id,lsu,arsub,arlsu,landuse,arland,soil,arso,slp,arslp,slope,lat,lon,elev)
+     VALUES (2,2,100,100,'AGRL',100,'TX047',100,'0-5',100,3,0,0,500)")
   # Channels
-  DBI::dbExecute(con, "INSERT INTO gis_channels VALUES (1,1,1,1000,0.01,1.0,0.5,0,0,0)")
-  DBI::dbExecute(con, "INSERT INTO gis_channels VALUES (2,2,1,1000,0.01,1.0,0.5,0,0,0)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_channels (id,subbasin,areac,len2,slo2,wid2,dep2,elevmin,elevmax)
+     VALUES (1,1,100,1000,0.01,1.0,0.5,400,600)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_channels (id,subbasin,areac,len2,slo2,wid2,dep2,elevmin,elevmax)
+     VALUES (2,2,100,1000,0.01,1.0,0.5,400,600)")
   # LSUs
-  DBI::dbExecute(con, "INSERT INTO gis_lsus VALUES (1,0,1,100,5,0,0,500)")
-  DBI::dbExecute(con, "INSERT INTO gis_lsus VALUES (2,0,2,100,5,0,0,500)")
-  # Create routing loop: 1→2→1
-  DBI::dbExecute(con, "INSERT INTO gis_routing VALUES (1,'sub',2,'sub',100,'tot')")
-  DBI::dbExecute(con, "INSERT INTO gis_routing VALUES (2,'sub',1,'sub',100,'tot')")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_lsus (id,category,channel,area,slope,csl,wid1,dep1,lat,lon,elev)
+     VALUES (1,0,1,100,5,5,1,0.5,0,0,500)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_lsus (id,category,channel,area,slope,csl,wid1,dep1,lat,lon,elev)
+     VALUES (2,0,2,100,5,5,1,0.5,0,0,500)")
+  # Create routing loop: 1->2->1
+  DBI::dbExecute(con,
+    "INSERT INTO gis_routing (sourceid,sourcecat,sinkid,sinkcat,percent)
+     VALUES (1,'sub',2,'sub',100)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_routing (sourceid,sourcecat,sinkid,sinkcat,percent)
+     VALUES (2,'sub',1,'sub',100)")
+  # project_config
+  DBI::dbExecute(con,
+    "INSERT INTO project_config (id,delineation_done,hrus_done,imported_gis,is_lte)
+     VALUES (1,1,1,1,0)")
   DBI::dbDisconnect(con)
 
   result <- qswat_check_database(db_file, verbose = FALSE)
@@ -143,12 +181,25 @@ test_that("qswat_check_database detects missing outlet", {
   con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
   rQSWATPlus:::.create_db_tables(con)
 
-  DBI::dbExecute(con, "INSERT INTO gis_subbasins VALUES (1,100,5,100,5,0,0,500,400,600,0)")
-  DBI::dbExecute(con, "INSERT INTO gis_hrus VALUES (1,1,'AGRL','TX047',1,10,3,0,0,500,50,50,50,100)")
-  DBI::dbExecute(con, "INSERT INTO gis_channels VALUES (1,1,1,1000,0.01,1.0,0.5,0,0,0)")
-  DBI::dbExecute(con, "INSERT INTO gis_lsus VALUES (1,0,1,100,5,0,0,500)")
-  # Routing that doesn't go to outlet - just sub→sub
-  DBI::dbExecute(con, "INSERT INTO gis_routing VALUES (1,'sub',2,'sub',100,'tot')")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_subbasins (id,area,slo1,len1,sll,lat,lon,elev,elevmin,elevmax)
+     VALUES (1,100,5,100,5,0,0,500,400,600)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_hrus (id,lsu,arsub,arlsu,landuse,arland,soil,arso,slp,arslp,slope,lat,lon,elev)
+     VALUES (1,1,100,100,'AGRL',100,'TX047',100,'0-5',100,3,0,0,500)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_channels (id,subbasin,areac,len2,slo2,wid2,dep2,elevmin,elevmax)
+     VALUES (1,1,100,1000,0.01,1.0,0.5,400,600)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_lsus (id,category,channel,area,slope,csl,wid1,dep1,lat,lon,elev)
+     VALUES (1,0,1,100,5,5,1,0.5,0,0,500)")
+  # Routing that doesn't go to outlet - just sub->sub
+  DBI::dbExecute(con,
+    "INSERT INTO gis_routing (sourceid,sourcecat,sinkid,sinkcat,percent)
+     VALUES (1,'sub',2,'sub',100)")
+  DBI::dbExecute(con,
+    "INSERT INTO project_config (id,delineation_done,hrus_done,imported_gis,is_lte)
+     VALUES (1,1,1,1,0)")
   DBI::dbDisconnect(con)
 
   result <- qswat_check_database(db_file, verbose = FALSE)
@@ -163,12 +214,25 @@ test_that("qswat_check_database detects bad routing percentages", {
   con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
   rQSWATPlus:::.create_db_tables(con)
 
-  DBI::dbExecute(con, "INSERT INTO gis_subbasins VALUES (1,100,5,100,5,0,0,500,400,600,0)")
-  DBI::dbExecute(con, "INSERT INTO gis_hrus VALUES (1,1,'AGRL','TX047',1,10,3,0,0,500,50,50,50,100)")
-  DBI::dbExecute(con, "INSERT INTO gis_channels VALUES (1,1,1,1000,0.01,1.0,0.5,0,0,0)")
-  DBI::dbExecute(con, "INSERT INTO gis_lsus VALUES (1,0,1,100,5,0,0,500)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_subbasins (id,area,slo1,len1,sll,lat,lon,elev,elevmin,elevmax)
+     VALUES (1,100,5,100,5,0,0,500,400,600)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_hrus (id,lsu,arsub,arlsu,landuse,arland,soil,arso,slp,arslp,slope,lat,lon,elev)
+     VALUES (1,1,100,100,'AGRL',100,'TX047',100,'0-5',100,3,0,0,500)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_channels (id,subbasin,areac,len2,slo2,wid2,dep2,elevmin,elevmax)
+     VALUES (1,1,100,1000,0.01,1.0,0.5,400,600)")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_lsus (id,category,channel,area,slope,csl,wid1,dep1,lat,lon,elev)
+     VALUES (1,0,1,100,5,5,1,0.5,0,0,500)")
   # Routing with bad percentage (50 instead of 100)
-  DBI::dbExecute(con, "INSERT INTO gis_routing VALUES (1,'sub',0,'outlet',50,'tot')")
+  DBI::dbExecute(con,
+    "INSERT INTO gis_routing (sourceid,sourcecat,sinkid,sinkcat,percent)
+     VALUES (1,'sub',0,'outlet',50)")
+  DBI::dbExecute(con,
+    "INSERT INTO project_config (id,delineation_done,hrus_done,imported_gis,is_lte)
+     VALUES (1,1,1,1,0)")
   DBI::dbDisconnect(con)
 
   result <- qswat_check_database(db_file, verbose = FALSE)

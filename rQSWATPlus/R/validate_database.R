@@ -77,7 +77,7 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
   existing_tables <- DBI::dbListTables(con)
 
   required_tables <- c("gis_subbasins", "gis_channels", "gis_lsus",
-                        "gis_hrus", "gis_routing")
+                        "gis_hrus", "gis_routing", "project_config")
 
   for (tbl in required_tables) {
     ok <- tbl %in% existing_tables
@@ -90,7 +90,12 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
   }
 
   optional_tables <- c("gis_aquifers", "gis_deep_aquifers", "gis_water",
-                        "gis_points")
+                        "gis_points", "gis_elevationbands",
+                        "gis_landexempt", "gis_splithrus",
+                        "BASINSDATA", "HRUSDATA", "LSUSDATA", "WATERDATA",
+                        "config_delin", "config_hru", "config_landuse",
+                        "config_lsu", "config_observed", "config_params",
+                        "config_soil")
   for (tbl in optional_tables) {
     if (!(tbl %in% existing_tables)) {
       warn(paste0("Optional table '", tbl, "' is missing"))
@@ -108,11 +113,13 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
   expected_cols <- list(
     gis_subbasins = c("id", "area", "slo1", "len1", "sll", "lat", "lon",
                        "elev", "elevmin", "elevmax"),
-    gis_hrus = c("id", "subbasin", "landuse", "soil", "slope",
+    gis_hrus = c("id", "lsu", "landuse", "soil", "slope",
                   "lat", "lon", "elev"),
     gis_channels = c("id", "subbasin"),
     gis_lsus = c("id", "channel", "area", "slope", "lat", "lon", "elev"),
-    gis_routing = c("sourceid", "sourcecat", "sinkid", "sinkcat", "percent")
+    gis_routing = c("sourceid", "sourcecat", "sinkid", "sinkcat", "percent"),
+    project_config = c("id", "project_name", "delineation_done",
+                        "hrus_done")
   )
 
   for (tbl in names(expected_cols)) {
@@ -142,22 +149,24 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
 
   # ---- 4. Referential integrity ----
   subbasins <- DBI::dbGetQuery(con, "SELECT id FROM gis_subbasins")$id
-  hrus <- DBI::dbGetQuery(con, "SELECT id, subbasin FROM gis_hrus")
+  hrus <- DBI::dbGetQuery(con, "SELECT * FROM gis_hrus")
   channels <- DBI::dbGetQuery(con, "SELECT id, subbasin FROM gis_channels")
   lsus <- DBI::dbGetQuery(con, "SELECT id, channel FROM gis_lsus")
   routing <- DBI::dbGetQuery(con, "SELECT * FROM gis_routing")
 
-  # HRU → subbasin
-  if (nrow(hrus) > 0 && "subbasin" %in% names(hrus)) {
-    orphan_hru <- hrus$subbasin[!hrus$subbasin %in% subbasins]
-    ok <- length(orphan_hru) == 0
+  # HRU → LSU (lsu column references gis_lsus.id)
+  if (nrow(hrus) > 0 && "lsu" %in% names(hrus) && nrow(lsus) > 0) {
+    orphan_hru <- hrus$lsu[!hrus$lsu %in% lsus$id]
+    # Also allow referencing subbasins directly
+    orphan_hru2 <- orphan_hru[!orphan_hru %in% subbasins]
+    ok <- length(orphan_hru2) == 0
     record(
-      "ref_integrity:hru_subbasin",
+      "ref_integrity:hru_lsu",
       ok,
-      if (ok) "All HRUs reference valid subbasins"
-      else paste0(length(orphan_hru), " HRU(s) reference non-existent ",
-                  "subbasin(s): ",
-                  paste(unique(orphan_hru), collapse = ", "))
+      if (ok) "All HRUs reference valid LSUs or subbasins"
+      else paste0(length(orphan_hru2), " HRU(s) reference non-existent ",
+                  "LSU(s): ",
+                  paste(unique(orphan_hru2), collapse = ", "))
     )
   }
 
@@ -236,11 +245,16 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
   }
 
   # ---- 6. Completeness ----
-  # Every subbasin should have >= 1 HRU
-  if (nrow(hrus) > 0 && length(subbasins) > 0 &&
-      "subbasin" %in% names(hrus)) {
-    subs_with_hru <- unique(hrus$subbasin)
-    missing_hru <- subbasins[!subbasins %in% subs_with_hru]
+  # Every subbasin should have >= 1 HRU (via LSU)
+  if (nrow(hrus) > 0 && length(subbasins) > 0 && "lsu" %in% names(hrus)) {
+    # HRU.lsu → LSU.id → LSU.channel → subbasin
+    hru_subs <- unique(hrus$lsu)
+    # LSUs link to subbasins via channel field
+    if (nrow(lsus) > 0) {
+      lsu_subs <- unique(lsus$channel[lsus$id %in% hru_subs])
+      hru_subs <- unique(c(hru_subs, lsu_subs))
+    }
+    missing_hru <- subbasins[!subbasins %in% hru_subs]
     ok <- length(missing_hru) == 0
     record(
       "completeness:subbasin_hrus",
