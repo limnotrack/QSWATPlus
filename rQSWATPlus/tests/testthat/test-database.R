@@ -64,6 +64,9 @@ test_that("database table creation works", {
   expect_true("urban" %in% tables)
   expect_true("WGEN_User" %in% tables)
   expect_true("WGEN_User_mon" %in% tables)
+
+  # Weather tables
+  expect_true("weather_sta_cli" %in% tables)
 })
 
 test_that("subbasin table write works", {
