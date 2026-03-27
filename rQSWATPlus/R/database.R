@@ -601,6 +601,23 @@ qswat_write_database <- function(project,
       dew_ave REAL NOT NULL, wnd_ave REAL NOT NULL
     )
   ")
+
+  DBI::dbExecute(con, "
+    CREATE TABLE IF NOT EXISTS weather_sta_cli (
+      id       INTEGER       NOT NULL PRIMARY KEY,
+      name     VARCHAR (255) NOT NULL,
+      wgn_id   INTEGER,
+      pcp      VARCHAR (255),
+      tmp      VARCHAR (255),
+      slr      VARCHAR (255),
+      hmd      VARCHAR (255),
+      wnd      VARCHAR (255),
+      wnd_dir  VARCHAR (255),
+      atmo_dep VARCHAR (255),
+      lat      REAL,
+      lon      REAL
+    )
+  ")
 }
 
 
