@@ -141,7 +141,8 @@ qswat_write_database <- function(project,
       soil_layer_table         TEXT,
       output_last_imported     DATETIME,
       imported_gis             BOOLEAN DEFAULT (0) NOT NULL,
-      is_lte                   BOOLEAN NOT NULL DEFAULT (0)
+      is_lte                   BOOLEAN NOT NULL DEFAULT (0),
+      use_gwflow               BOOLEAN NOT NULL DEFAULT (0)
     )
   ")
 
@@ -892,6 +893,7 @@ qswat_write_database <- function(project,
     output_last_imported = NA_character_,
     imported_gis = 1L,
     is_lte = 0L,
+    use_gwflow = 0L,
     stringsAsFactors = FALSE
   )
 
