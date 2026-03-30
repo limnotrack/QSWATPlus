@@ -104,7 +104,7 @@ test_that("qswat_check_database detects referential integrity issues", {
 
   result <- qswat_check_database(db_file, verbose = FALSE)
   expect_false(result$passed)
-  expect_true(any(grepl("non-existent", result$errors)))
+  expect_true(any(grepl("non-existent LSU", result$errors)))
 })
 
 test_that("qswat_check_database detects routing loops", {
