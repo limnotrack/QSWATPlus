@@ -112,14 +112,16 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
   # ---- 2. Required columns ----
   expected_cols <- list(
     gis_subbasins = c("id", "area", "slo1", "len1", "sll", "lat", "lon",
-                       "elev", "elevmin", "elevmax"),
+                       "elev", "elevmin", "elevmax", "waterid"),
     gis_hrus = c("id", "lsu", "landuse", "soil", "slope",
                   "lat", "lon", "elev"),
-    gis_channels = c("id", "subbasin"),
-    gis_lsus = c("id", "channel", "area", "slope", "lat", "lon", "elev"),
-    gis_routing = c("sourceid", "sourcecat", "sinkid", "sinkcat", "percent"),
+    gis_channels = c("id", "subbasin", "strahler", "midlat", "midlon"),
+    gis_lsus = c("id", "channel", "subbasin", "area", "slope", "len1",
+                  "lat", "lon", "elev"),
+    gis_routing = c("sourceid", "sourcecat", "hyd_type", "sinkid",
+                     "sinkcat", "percent"),
     project_config = c("id", "project_name", "delineation_done",
-                        "hrus_done")
+                        "hrus_done", "use_gwflow")
   )
 
   for (tbl in names(expected_cols)) {

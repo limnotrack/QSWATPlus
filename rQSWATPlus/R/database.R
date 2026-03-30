@@ -644,6 +644,7 @@ qswat_write_database <- function(project,
     elev = basin_data$mean_elevation,
     elevmin = basin_data$min_elevation,
     elevmax = basin_data$max_elevation,
+    waterid = 0L,
     stringsAsFactors = FALSE
   )
 
@@ -741,6 +742,7 @@ qswat_write_database <- function(project,
         routes[[length(routes) + 1]] <- data.frame(
           sourceid = wsno,
           sourcecat = "sub",
+          hyd_type = "tot",
           sinkid = ds_wsno[1],
           sinkcat = "sub",
           percent = 100,
@@ -752,6 +754,7 @@ qswat_write_database <- function(project,
       routes[[length(routes) + 1]] <- data.frame(
         sourceid = wsno,
         sourcecat = "sub",
+        hyd_type = "tot",
         sinkid = 0L,
         sinkcat = "outlet",
         percent = 100,
@@ -784,16 +787,26 @@ qswat_write_database <- function(project,
     areac_val[is.na(areac_val)] <- 0
   }
 
+  # Use Strahler stream order from topology if available
+  strahler_val <- rep(1L, sum(valid))
+  if ("strmOrder" %in% names(topo)) {
+    strahler_val <- topo$strmOrder[valid]
+    strahler_val[is.na(strahler_val)] <- 1L
+  }
+
   df <- data.frame(
     id = seq_len(sum(valid)),
     subbasin = topo$WSNO[valid],
     areac = areac_val,
+    strahler = strahler_val,
     len2 = if (!all(is.na(topo$Length))) topo$Length[valid] else 0,
     slo2 = 0.01,
     wid2 = 1.0,
     dep2 = 0.5,
     elevmin = 0,
     elevmax = 0,
+    midlat = 0,
+    midlon = 0,
     stringsAsFactors = FALSE
   )
 
@@ -820,8 +833,10 @@ qswat_write_database <- function(project,
     id = seq_len(nrow(bd)),
     category = 0L,
     channel = bd$subbasin,
+    subbasin = bd$subbasin,
     area = bd$area_ha,
     slope = bd$mean_slope,
+    len1 = sqrt(bd$area_ha * 10000),
     csl = bd$mean_slope,
     wid1 = 1.0,
     dep1 = 0.5,

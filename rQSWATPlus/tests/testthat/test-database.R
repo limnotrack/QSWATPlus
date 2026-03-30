@@ -99,6 +99,7 @@ test_that("subbasin table write works", {
   expect_equal(nrow(result), 2)
   expect_equal(result$id, c(1, 2))
   expect_equal(result$area, c(100, 200))
+  expect_equal(result$waterid, c(0L, 0L))
 })
 
 # Full database integration test
@@ -155,21 +156,38 @@ test_that("full database write works with mock data", {
 
   subs <- DBI::dbGetQuery(con, "SELECT * FROM gis_subbasins")
   expect_equal(nrow(subs), 2)
+  expect_true("waterid" %in% names(subs))
+  expect_equal(subs$waterid, c(0L, 0L))
 
   hrus <- DBI::dbGetQuery(con, "SELECT * FROM gis_hrus")
   expect_equal(nrow(hrus), 4)
 
   routing <- DBI::dbGetQuery(con, "SELECT * FROM gis_routing")
   expect_true(nrow(routing) > 0)
+  expect_true("hyd_type" %in% names(routing))
+  expect_true(all(routing$hyd_type == "tot"))
 
   channels <- DBI::dbGetQuery(con, "SELECT * FROM gis_channels")
   expect_true(nrow(channels) > 0)
+  expect_true("strahler" %in% names(channels))
+  expect_true("midlat" %in% names(channels))
+  expect_true("midlon" %in% names(channels))
+  expect_equal(channels$strahler, c(2L, 1L))
+
+  # Check LSU table has new fields
+  lsus <- DBI::dbGetQuery(con, "SELECT * FROM gis_lsus")
+  expect_true(nrow(lsus) > 0)
+  expect_true("subbasin" %in% names(lsus))
+  expect_true("len1" %in% names(lsus))
+  expect_equal(lsus$subbasin, c(1L, 2L))
 
   # Check project_config
   pc <- DBI::dbGetQuery(con, "SELECT * FROM project_config")
   expect_equal(nrow(pc), 1)
   expect_equal(pc$delineation_done, 1)
   expect_equal(pc$hrus_done, 1)
+  expect_true("use_gwflow" %in% names(pc))
+  expect_equal(pc$use_gwflow, 0L)
 
   # Check BASINSDATA
   bd <- DBI::dbGetQuery(con, "SELECT * FROM BASINSDATA")
