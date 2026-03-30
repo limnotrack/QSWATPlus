@@ -158,7 +158,8 @@ qswat_write_database <- function(project,
       lon      REAL,
       elev     REAL,
       elevmin  REAL,
-      elevmax  REAL
+      elevmax  REAL,
+      waterid  INTEGER
     )
   ")
 
@@ -185,6 +186,7 @@ qswat_write_database <- function(project,
     CREATE TABLE IF NOT EXISTS gis_routing (
       sourceid  INTEGER,
       sourcecat TEXT,
+      hyd_type  TEXT,
       sinkid    INTEGER,
       sinkcat   TEXT,
       percent   REAL
@@ -200,12 +202,15 @@ qswat_write_database <- function(project,
       id       INTEGER PRIMARY KEY UNIQUE NOT NULL,
       subbasin INTEGER,
       areac    REAL,
+      strahler INTEGER,
       len2     REAL,
       slo2     REAL,
       wid2     REAL,
       dep2     REAL,
       elevmin  REAL,
-      elevmax  REAL
+      elevmax  REAL,
+      midlat   REAL,
+      midlon   REAL
     )
   ")
 
@@ -214,8 +219,10 @@ qswat_write_database <- function(project,
       id       INTEGER PRIMARY KEY UNIQUE NOT NULL,
       category INTEGER,
       channel  INTEGER,
+      subbasin INTEGER,
       area     REAL,
       slope    REAL,
+      len1     REAL,
       csl      REAL,
       wid1     REAL,
       dep1     REAL,
