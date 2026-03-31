@@ -1098,6 +1098,21 @@ qswat_write_database <- function(project,
   DBI::dbWriteTable(con, "LSUSDATA", df, append = TRUE, row.names = FALSE)
 }
 
+
+#' Safe row count for a table
+#'
+#' Returns the number of rows in \code{tbl_name}, or \code{-1L} if the table
+#' does not exist or an error occurs.
+#' @noRd
+.safe_table_count <- function(con, tbl_name) {
+  tryCatch(
+    DBI::dbGetQuery(con,
+                    paste0("SELECT COUNT(*) AS n FROM main.", tbl_name))$n,
+    error = function(e) -1L
+  )
+}
+
+
 #' Populate reference/parameter tables from the SWAT+ datasets database
 #'
 #' Uses SQLite ATTACH to copy reference data (plants, fertilizers, operations,
@@ -1121,18 +1136,11 @@ populate_from_datasets <- function(con) {
   }
   
   con2 <- DBI::dbConnect(RSQLite::SQLite(), datasets_db)
-  DBI::dbListTables(con2)  # force error if database is not valid
+  ds_tables <- DBI::dbListTables(con2)
+  DBI::dbDisconnect(con2)
   
   DBI::dbExecute(con, paste0("ATTACH DATABASE '", datasets_db, "' AS datasets"))
   on.exit(DBI::dbExecute(con, "DETACH DATABASE datasets"), add = TRUE)
-  
-  safe_count <- function(con, tbl_name) {
-    tryCatch(
-      DBI::dbGetQuery(con,
-                      paste0("SELECT COUNT(*) AS n FROM main.", tbl_name))$n,
-      error = function(e) -1L
-    )
-  }
   
   # Reference tables to copy from datasets (ordered for FK dependencies).
   ref_tables <- c(
@@ -1156,7 +1164,9 @@ populate_from_datasets <- function(con) {
   )
   
   for (tbl in ref_tables) {
-    n <- safe_count(con = con, tbl_name = tbl)
+    # Skip if the source table does not exist in the datasets database
+    if (!(tbl %in% ds_tables)) next
+    n <- .safe_table_count(con, tbl)
     if (n <= 0L) {
       # Drop empty/wrong-schema table and recreate from datasets
       tryCatch(
@@ -1171,7 +1181,10 @@ populate_from_datasets <- function(con) {
   }
   
   # Decision tables: copy lum.dtl + selected res_rel.dtl (non-LTE)
-  if (safe_count("d_table_dtl") <= 0L) {
+  dtl_tables_available <- all(c("d_table_dtl", "d_table_dtl_cond",
+    "d_table_dtl_cond_alt", "d_table_dtl_act", "d_table_dtl_act_out") %in%
+    ds_tables)
+  if (dtl_tables_available && .safe_table_count(con, "d_table_dtl") <= 0L) {
     tryCatch(
       DBI::dbExecute(con, "DROP TABLE IF EXISTS main.d_table_dtl"),
       error = function(e) NULL
@@ -1290,7 +1303,7 @@ ensure_write_tables <- function(con) {
     DBI::dbGetQuery(con, "SELECT id FROM print_prt ORDER BY id LIMIT 1")$id,
     error = function(e) 1L)
   
-  if (safe_count(con, "print_prt_object") == 0L) {
+  if (.safe_table_count(con, "print_prt_object") == 0L) {
     # Names where yearly=1, avann=1
     active <- c(
       "basin_wb", "basin_nb", "basin_ls", "basin_pw", "basin_aqu",
@@ -2032,7 +2045,7 @@ ensure_write_tables <- function(con) {
         REFERENCES file_cio_classification(id)
     )")
   
-  if (safe_count(con, "file_cio_classification") == 0L) {
+  if (.safe_table_count(con, "file_cio_classification") == 0L) {
     cls_names <- c(
       "simulation", "basin", "climate", "connect", "channel",
       "reservoir", "routing_unit", "hru", "exco", "recall",
@@ -2128,6 +2141,161 @@ ensure_write_tables <- function(con) {
     
     DBI::dbWriteTable(con, "file_cio", file_rows, append = TRUE)
   }
+  
+  # ==================================================================
+  # 28. Missing _item / _elem / sub-tables required by Python QSWAT+
+  # ==================================================================
+  
+  # -- Initial condition _item tables --
+  ini_item_tables <- c(
+    "plant_ini_item", "pest_hru_ini_item", "pest_water_ini_item",
+    "path_hru_ini_item", "path_water_ini_item",
+    "hmet_hru_ini_item", "hmet_water_ini_item",
+    "salt_hru_ini_item", "salt_water_ini_item"
+  )
+  for (tbl in ini_item_tables) {
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS ", tbl, " (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+  }
+  
+  # -- Region _elem tables --
+  region_elem_tables <- c(
+    "aqu_catunit_def_elem", "aqu_reg_def_elem",
+    "ch_catunit_def_elem", "ch_reg_def_elem",
+    "res_catunit_def_elem", "res_reg_def_elem",
+    "rec_catunit_def_elem", "rec_reg_def_elem"
+  )
+  for (tbl in region_elem_tables) {
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS ", tbl, " (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+  }
+  
+  # -- Decision table sub-tables --
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS d_table_dtl_cond_alt (
+      id INTEGER PRIMARY KEY, cond_id INTEGER, name TEXT
+    )")
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS d_table_dtl_act_out (
+      id INTEGER PRIMARY KEY, act_id INTEGER, name TEXT
+    )")
+  
+  # -- Soft calibration _item tables --
+  sft_item_tables <- c(
+    "ch_sed_budget_sft_item", "plant_gro_sft_item",
+    "plant_parms_sft_item", "water_balance_sft_item"
+  )
+  for (tbl in sft_item_tables) {
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS ", tbl, " (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+  }
+  
+  # -- Calibration sub-tables --
+  create_if_missing("CREATE TABLE IF NOT EXISTS calibration_cal_cond (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  create_if_missing("CREATE TABLE IF NOT EXISTS calibration_cal_elem (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  
+  # -- Climate sub-tables --
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS atmo_cli_sta (
+      id INTEGER PRIMARY KEY, atmo_cli_id INTEGER,
+      weather_sta_cli_id INTEGER
+    )")
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS atmo_cli_sta_value (
+      id INTEGER PRIMARY KEY, sta_id INTEGER,
+      timestep INTEGER, nh4_wet REAL, no3_wet REAL,
+      nh4_dry REAL, no3_dry REAL
+    )")
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS weather_sta_cli_scale (
+      id INTEGER PRIMARY KEY, weather_sta_cli_id INTEGER,
+      name TEXT
+    )")
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS wind_dir_cli (
+      id INTEGER PRIMARY KEY, name TEXT
+    )")
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS print_prt_aa_int (
+      id INTEGER PRIMARY KEY, print_prt_id INTEGER, aa_int_cnt INTEGER
+    )")
+  
+  # -- DR (delivery ratio) _col and _val tables --
+  dr_types <- c("pest", "path", "hmet", "salt")
+  for (dt in dr_types) {
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS dr_", dt, "_col (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS dr_", dt, "_val (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+  }
+  
+  # -- EXCO _col and _val tables --
+  exco_types <- c("pest", "path", "hmet", "salt")
+  for (et in exco_types) {
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS exco_", et, "_col (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS exco_", et, "_val (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+  }
+  
+  # -- Link _ob tables --
+  create_if_missing("CREATE TABLE IF NOT EXISTS chan_aqu_lin_ob (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  create_if_missing("CREATE TABLE IF NOT EXISTS chan_surf_lin_ob (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  
+  # -- Management sub-tables --
+  create_if_missing("CREATE TABLE IF NOT EXISTS management_sch_auto (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  create_if_missing("CREATE TABLE IF NOT EXISTS management_sch_op (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  
+  # -- Soils layer table --
+  create_if_missing("CREATE TABLE IF NOT EXISTS soils_sol_layer (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  
+  # -- Landuse lookup table --
+  create_if_missing("CREATE TABLE IF NOT EXISTS landuse_lookup (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  
+  # -- Salt module tables --
+  salt_tables <- c(
+    "salt_module", "salt_aqu_ini", "salt_atmo_cli",
+    "salt_channel_ini", "salt_fertilizer_frt", "salt_hru_ini_cs",
+    "salt_irrigation", "salt_plants", "salt_plants_flags",
+    "salt_recall_dat", "salt_recall_rec", "salt_res_ini",
+    "salt_road", "salt_urban"
+  )
+  for (tbl in salt_tables) {
+    create_if_missing(paste0(
+      "CREATE TABLE IF NOT EXISTS ", tbl, " (
+         id INTEGER PRIMARY KEY, name TEXT
+       )"))
+  }
+  
+  # -- Water allocation sub-tables --
+  create_if_missing("CREATE TABLE IF NOT EXISTS water_allocation_dmd_ob (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  create_if_missing("CREATE TABLE IF NOT EXISTS water_allocation_dmd_ob_src (
+    id INTEGER PRIMARY KEY, name TEXT)")
+  create_if_missing("CREATE TABLE IF NOT EXISTS water_allocation_src_ob (
+    id INTEGER PRIMARY KEY, name TEXT)")
   
   invisible(NULL)
 }

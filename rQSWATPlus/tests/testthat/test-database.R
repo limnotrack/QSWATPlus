@@ -69,6 +69,145 @@ test_that("database table creation works", {
   expect_true("weather_sta_cli" %in% tables)
 })
 
+# Test that the full database write produces all tables matching the Python
+# QSWAT+ plugin output (excluding template-specific tables like Example1_*).
+test_that("full database includes all Python QSWAT+ plugin tables", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  project <- structure(list(
+    project_dir = tempdir(),
+    hru_data = data.frame(
+      hru_id = 1:2, subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600), min_elevation = c(490, 580),
+      max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  actual_tables <- DBI::dbListTables(con)
+
+  # Tables from a Python QSWAT+ plugin database (excluding template-only
+  # tables like Example1_*, FAO_*, "Name AutoCorrect Save Failures")
+  python_tables <- c(
+    "BASINSDATA", "HRUSDATA", "LSUSDATA", "WATERDATA",
+    "WGEN_User", "WGEN_User_mon",
+    "aquifer_aqu", "aquifer_con", "aquifer_con_out",
+    "aquifer2d_con", "aquifer2d_con_out",
+    "atmo_cli", "atmo_cli_sta", "atmo_cli_sta_value",
+    "bmpuser_str", "cal_parms_cal", "calibration_cal",
+    "calibration_cal_cond", "calibration_cal_elem",
+    "ch_catunit_def", "ch_catunit_def_elem", "ch_catunit_ele",
+    "ch_reg_def", "ch_reg_def_elem",
+    "ch_sed_budget_sft", "ch_sed_budget_sft_item", "ch_sed_parms_sft",
+    "chan_aqu_lin", "chan_aqu_lin_ob", "chan_surf_lin", "chan_surf_lin_ob",
+    "chandeg_con", "chandeg_con_out",
+    "channel_cha", "channel_con", "channel_con_out", "channel_lte_cha",
+    "chem_app_ops", "cntable_lum", "codes_bsn", "codes_sft",
+    "config_delin", "config_hru", "config_landuse", "config_lsu",
+    "config_observed", "config_params", "config_soil",
+    "cons_prac_lum", "constituents_cs",
+    "d_table_dtl", "d_table_dtl_act", "d_table_dtl_act_out",
+    "d_table_dtl_cond", "d_table_dtl_cond_alt",
+    "delratio_con", "delratio_con_out", "delratio_del",
+    "dr_hmet_col", "dr_hmet_del", "dr_hmet_val",
+    "dr_om_del", "dr_path_col", "dr_path_del", "dr_path_val",
+    "dr_pest_col", "dr_pest_del", "dr_pest_val",
+    "dr_salt_col", "dr_salt_del", "dr_salt_val",
+    "exco_con", "exco_con_out", "exco_exc",
+    "exco_hmet_col", "exco_hmet_exc", "exco_hmet_val",
+    "exco_om_exc", "exco_path_col", "exco_path_exc", "exco_path_val",
+    "exco_pest_col", "exco_pest_exc", "exco_pest_val",
+    "exco_salt_col", "exco_salt_exc", "exco_salt_val",
+    "fertilizer_frt", "field_fld", "file_cio", "file_cio_classification",
+    "filterstrip_str", "fire_ops",
+    "gis_aquifers", "gis_channels", "gis_deep_aquifers",
+    "gis_elevationbands", "gis_hrus", "gis_landexempt", "gis_lsus",
+    "gis_points", "gis_routing", "gis_splithrus", "gis_subbasins", "gis_water",
+    "global_landuses", "global_soils", "global_usersoil",
+    "grassedww_str", "graze_ops",
+    "gwflow_base", "gwflow_fpcell", "gwflow_grid", "gwflow_hrucell",
+    "gwflow_init_conc", "gwflow_lsucell", "gwflow_obs_locs",
+    "gwflow_out_days", "gwflow_rescell", "gwflow_rivcell",
+    "gwflow_solutes", "gwflow_wetland", "gwflow_zone",
+    "harv_ops", "hmet_hru_ini", "hmet_hru_ini_item",
+    "hmet_water_ini", "hmet_water_ini_item",
+    "hru_con", "hru_con_out", "hru_data_hru",
+    "hru_lte_con", "hru_lte_con_out", "hru_lte_hru",
+    "hyd_sed_lte_cha", "hydrology_cha", "hydrology_hyd",
+    "hydrology_res", "hydrology_wet",
+    "initial_aqu", "initial_cha", "initial_res", "irr_ops",
+    "landuse_lookup", "landuse_lum",
+    "ls_reg_def", "ls_reg_ele", "ls_unit_def", "ls_unit_ele",
+    "management_sch", "management_sch_auto", "management_sch_op",
+    "metals_mtl", "modflow_con", "modflow_con_out",
+    "nutrients_cha", "nutrients_res", "nutrients_sol",
+    "object_cnt", "object_prt", "om_water_ini",
+    "outlet_con", "outlet_con_out", "ovn_table_lum", "parameters_bsn",
+    "path_hru_ini", "path_hru_ini_item",
+    "path_water_ini", "path_water_ini_item",
+    "pathogens_pth", "pest_hru_ini", "pest_hru_ini_item",
+    "pest_water_ini", "pest_water_ini_item", "pesticide_pst",
+    "plant", "plant_gro_sft", "plant_gro_sft_item",
+    "plant_ini", "plant_ini_item",
+    "plant_parms_sft", "plant_parms_sft_item", "plants_plt",
+    "print_prt", "print_prt_aa_int", "print_prt_object",
+    "project_config",
+    "rec_catunit_def", "rec_catunit_def_elem", "rec_catunit_ele",
+    "rec_reg_def", "rec_reg_def_elem",
+    "recall_con", "recall_con_out", "recall_dat", "recall_rec",
+    "res_catunit_def", "res_catunit_def_elem", "res_catunit_ele",
+    "res_reg_def", "res_reg_def_elem",
+    "reservoir_con", "reservoir_con_out", "reservoir_res",
+    "rout_unit_con", "rout_unit_con_out",
+    "rout_unit_dr", "rout_unit_ele", "rout_unit_rtu",
+    "salt_aqu_ini", "salt_atmo_cli", "salt_channel_ini",
+    "salt_fertilizer_frt", "salt_hru_ini", "salt_hru_ini_cs",
+    "salt_hru_ini_item", "salt_irrigation", "salt_module",
+    "salt_plants", "salt_plants_flags", "salt_recall_dat",
+    "salt_recall_rec", "salt_res_ini", "salt_road", "salt_urban",
+    "salt_water_ini", "salt_water_ini_item", "salts_slt",
+    "sediment_cha", "sediment_res", "septic_sep", "septic_str",
+    "snow_sno", "soil_plant_ini", "soils_lte_sol", "soils_sol",
+    "soils_sol_layer", "sweep_ops",
+    "tiledrain_str", "tillage_til", "time_sim", "topography_hyd",
+    "urban", "urban_urb",
+    "water_allocation_dmd_ob", "water_allocation_dmd_ob_src",
+    "water_allocation_src_ob", "water_allocation_wro",
+    "water_balance_sft", "water_balance_sft_item", "wb_parms_sft",
+    "weather_file", "weather_sta_cli", "weather_sta_cli_scale",
+    "weather_wgn_cli", "weather_wgn_cli_mon",
+    "weir_res", "wetland_wet", "wind_dir_cli"
+  )
+
+  missing <- setdiff(python_tables, actual_tables)
+  expect_equal(
+    length(missing), 0,
+    label = paste0("Missing tables: ", paste(missing, collapse = ", "))
+  )
+})
+
 test_that("subbasin table write works", {
   skip_if_not_installed("RSQLite")
   skip_if_not_installed("DBI")
