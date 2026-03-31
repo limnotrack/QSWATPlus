@@ -202,9 +202,9 @@ test_that("full database includes all Python QSWAT+ plugin tables", {
   )
 
   missing <- setdiff(python_tables, actual_tables)
-  expect_equal(
-    length(missing), 0,
-    label = paste0("Missing tables: ", paste(missing, collapse = ", "))
+  expect_true(
+    length(missing) == 0,
+    info = paste0("Missing tables: ", paste(missing, collapse = ", "))
   )
 })
 
