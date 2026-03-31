@@ -290,3 +290,98 @@ test_that("second write does not re-copy reference database", {
   mtime2 <- file.info(ref_db)$mtime
   expect_equal(mtime1, mtime2)
 })
+
+# Regression test: TauDEM sometimes assigns WSNO=0 to the outlet reach when
+# an outlet point is used.  That channel has no corresponding subbasin and
+# must not end up in gis_channels (it would otherwise cause a referential
+# integrity failure in qswat_check_database).  Upstream routing must be
+# redirected directly to "outlet".
+test_that("WSNO=0 outlet stream is excluded from channels and routing", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  project_dir <- tempfile("test_wsno0_outlet_")
+  dir.create(project_dir)
+  on.exit(unlink(project_dir, recursive = TRUE), add = TRUE)
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  # Topology: two real subbasins (WSNO 1, 2) draining into an outlet reach
+  # (WSNO=0) which flows to the watershed outlet.
+  # Link 2 (WSNO=2) → Link 1 (WSNO=1) → Link 3 (WSNO=0, outlet reach) → out
+  project <- structure(list(
+    project_dir = project_dir,
+    hru_data = data.frame(
+      hru_id = c(1L, 2L),
+      subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"),
+      soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L),
+      cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0),
+      stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L),
+      area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600),
+      min_elevation = c(490, 580),
+      max_elevation = c(510, 620),
+      mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L),
+      n_landuses = c(1L, 1L),
+      n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO    = c(1L, 2L, 3L),
+      DSLINKNO  = c(3L, 1L, -1L),   # 1→3(WSNO=0), 2→1, 3 is outlet
+      WSNO      = c(1L, 2L, 0L),    # WSNO=0 for the outlet reach
+      strmOrder = c(2L, 1L, 3L),
+      Length    = c(1000, 500, 200),
+      stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  # gis_channels must not contain a row with subbasin = 0
+  channels <- DBI::dbGetQuery(con, "SELECT * FROM gis_channels")
+  expect_true(
+    all(channels$subbasin > 0),
+    label = "No channel has subbasin = 0"
+  )
+  # Only the 2 real subbasins should appear as channels
+  expect_equal(nrow(channels), 2L)
+
+  # gis_routing must not have a source row for subbasin 0
+  routing <- DBI::dbGetQuery(con, "SELECT * FROM gis_routing")
+  expect_true(
+    all(routing$sourceid > 0),
+    label = "No routing source has id = 0"
+  )
+
+  # Subbasin 1 was previously routing to subbasin 0 (the outlet reach) - it
+  # should now route directly to the outlet
+  sub1_route <- routing[routing$sourceid == 1L, ]
+  expect_equal(nrow(sub1_route), 1L)
+  expect_equal(sub1_route$sinkcat, "outlet")
+
+  # The overall database must pass qswat_check_database
+  result <- qswat_check_database(db_file, verbose = FALSE)
+  expect_true(
+    result$passed,
+    label = paste(
+      "Database with WSNO=0 topology passes SWAT+ Editor check.",
+      if (!result$passed)
+        paste("Errors:", paste(result$errors, collapse = "; ")) else ""
+    )
+  )
+})
