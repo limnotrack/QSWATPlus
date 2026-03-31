@@ -208,6 +208,93 @@ test_that("full database includes all Python QSWAT+ plugin tables", {
   )
 })
 
+# Test that HAWQS-specific tables are populated from the bundled databases.
+test_that("HAWQS database tables are populated from bundled databases", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  project <- structure(list(
+    project_dir = tempdir(),
+    hru_data = data.frame(
+      hru_id = 1:2, subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600), min_elevation = c(490, 580),
+      max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  actual_tables <- DBI::dbListTables(con)
+
+  # --- Tables from QSWATPlusRefHAWQS.sqlite ---
+  ref_hawqs_tables <- c(
+    "plants_plt", "fertilizer_frt", "tillage_til", "pesticide_pst",
+    "urban_urb", "septic_sep", "snow_sno",
+    "cntable_lum", "ovn_table_lum", "cons_prac_lum",
+    "harv_ops", "fire_ops", "irr_ops", "sweep_ops", "chem_app_ops",
+    "graze_ops",
+    "bmpuser_str", "filterstrip_str", "grassedww_str",
+    "septic_str", "tiledrain_str",
+    "cal_parms_cal", "soils_lte_sol", "landuse_lum",
+    "plant_ini", "plant_ini_item",
+    "d_table_dtl", "d_table_dtl_act", "d_table_dtl_act_out",
+    "d_table_dtl_cond", "d_table_dtl_cond_alt"
+  )
+  for (tbl in ref_hawqs_tables) {
+    expect_true(tbl %in% actual_tables,
+                info = paste0("HAWQS ref table missing: ", tbl))
+  }
+
+  # Verify plants_plt has data from HAWQS ref (266 rows)
+  n_plants <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM plants_plt")$n
+  expect_true(n_plants >= 266,
+              info = paste0("Expected >= 266 plants_plt rows, got: ", n_plants))
+
+  # --- Tables from QSWATPlusProjHAWQS.sqlite ---
+  hawqs_proj_tables <- c(
+    "plant_HAWQS", "urban_HAWQS",
+    "statsgo_ssurgo_lkey", "statsgo_ssurgo_lkey1"
+  )
+  for (tbl in hawqs_proj_tables) {
+    expect_true(tbl %in% actual_tables,
+                info = paste0("HAWQS proj table missing: ", tbl))
+  }
+
+  # CDL landuse field tables (01 through 18)
+  for (i in seq_len(18)) {
+    tbl <- paste0("landuse_fields_CDL_", sprintf("%02d", i))
+    expect_true(tbl %in% actual_tables,
+                info = paste0("CDL table missing: ", tbl))
+  }
+
+  # Verify plant_HAWQS has data (460 rows)
+  n_plant_hawqs <- DBI::dbGetQuery(con,
+    "SELECT COUNT(*) AS n FROM [plant_HAWQS]")$n
+  expect_true(n_plant_hawqs >= 460,
+              info = paste0("Expected >= 460 plant_HAWQS rows, got: ",
+                            n_plant_hawqs))
+})
+
 test_that("subbasin table write works", {
   skip_if_not_installed("RSQLite")
   skip_if_not_installed("DBI")

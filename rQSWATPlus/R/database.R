@@ -953,12 +953,19 @@ qswat_write_database <- function(project,
 }
 
 
-#' Copy Reference Database to Project Folder
+#' Copy Reference Databases to Project Folder
 #'
-#' Copies the bundled QSWATPlusProj.sqlite reference database to the project
-#' folder as `swatplus_datasets.sqlite`, mirroring the behaviour of the
-#' SWAT+ Editor.  Returns the normalised path to the copy (or NA if the
-#' bundled source cannot be found).
+#' Copies the bundled reference databases to the project folder:
+#' \itemize{
+#'   \item \file{QSWATPlusProj.sqlite} \rarr \file{swatplus_datasets.sqlite}
+#'         (standard project template)
+#'   \item \file{QSWATPlusRefHAWQS.sqlite} \rarr
+#'         \file{swatplus_datasets_ref.sqlite} (HAWQS reference/parameter data)
+#'   \item \file{QSWATPlusProjHAWQS.sqlite} \rarr
+#'         \file{swatplus_datasets_proj_hawqs.sqlite} (HAWQS project template)
+#' }
+#' Returns the normalised path to the main copy (or \code{NA} if the bundled
+#' source cannot be found).
 #' @noRd
 .copy_reference_database <- function(project_dir) {
   src <- system.file("extdata", "QSWATPlusProj.sqlite",
@@ -973,6 +980,28 @@ qswat_write_database <- function(project,
     file.copy(src, dest)
     message("Reference database copied to: ", dest)
   }
+
+  # Copy HAWQS reference database (rich parameter data)
+  ref_hawqs_src <- system.file("extdata", "QSWATPlusRefHAWQS.sqlite",
+                               package = "rQSWATPlus")
+  if (nzchar(ref_hawqs_src) && file.exists(ref_hawqs_src)) {
+    ref_hawqs_dest <- file.path(project_dir, "swatplus_datasets_ref.sqlite")
+    if (!file.exists(ref_hawqs_dest)) {
+      file.copy(ref_hawqs_src, ref_hawqs_dest)
+    }
+  }
+
+  # Copy HAWQS project template database
+  proj_hawqs_src <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                                package = "rQSWATPlus")
+  if (nzchar(proj_hawqs_src) && file.exists(proj_hawqs_src)) {
+    proj_hawqs_dest <- file.path(project_dir,
+                                 "swatplus_datasets_proj_hawqs.sqlite")
+    if (!file.exists(proj_hawqs_dest)) {
+      file.copy(proj_hawqs_src, proj_hawqs_dest)
+    }
+  }
+
   normalizePath(dest, mustWork = FALSE)
 }
 
@@ -1113,120 +1142,270 @@ qswat_write_database <- function(project,
 }
 
 
-#' Populate reference/parameter tables from the SWAT+ datasets database
+#' Populate reference/parameter tables from the SWAT+ datasets databases
 #'
 #' Uses SQLite ATTACH to copy reference data (plants, fertilizers, operations,
-#' structural BMPs, land use, calibration parameters, etc.) from the
-#' \pkg{rQSWATPlus} reference database (\file{QSWATPlusProj.sqlite}) into the
-#' project database.  Only empty or missing tables are populated; tables with
-#' existing data are left untouched.  This mirrors the Python SWAT+ Editor
-#' \code{SetupProjectDatabase.initialize_data()}.
+#' structural BMPs, land use, calibration parameters, soils, weather generator,
+#' etc.) from the bundled reference databases into the project database.
+#'
+#' Data are sourced from two databases (in priority order):
+#' \enumerate{
+#'   \item \file{QSWATPlusRefHAWQS.sqlite} -- rich parameter/reference data
+#'         (plants_plt, fertilizer_frt, management schedules, soil, wgn, …)
+#'   \item \file{QSWATPlusProj.sqlite} -- standard project template (fallback)
+#' }
+#'
+#' Additionally, HAWQS-specific tables (\code{plant_HAWQS}, \code{urban_HAWQS},
+#' CDL landuse field tables, \code{statsgo_ssurgo_lkey*}) are copied from
+#' \file{QSWATPlusProjHAWQS.sqlite}.
+#'
+#' Only empty or missing tables are populated; tables with existing data are
+#' left untouched.
 #'
 #' @param con DBI connection to the project database.
 #' @return Invisible \code{NULL}.
 #' @keywords internal
 populate_from_datasets <- function(con) {
-  datasets_db <- ""
+
+  # ------------------------------------------------------------------
+  # Locate bundled databases
+  # ------------------------------------------------------------------
+  ref_hawqs_db <- ""
+  proj_hawqs_db <- ""
+  proj_db <- ""
   if (requireNamespace("rQSWATPlus", quietly = TRUE)) {
-    datasets_db <- system.file("extdata", "QSWATPlusProj.sqlite",
-                               package = "rQSWATPlus")
+    ref_hawqs_db <- system.file("extdata", "QSWATPlusRefHAWQS.sqlite",
+                                package = "rQSWATPlus")
+    proj_hawqs_db <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                                 package = "rQSWATPlus")
+    proj_db <- system.file("extdata", "QSWATPlusProj.sqlite",
+                           package = "rQSWATPlus")
   }
-  if (!nzchar(datasets_db) || !file.exists(datasets_db)) {
-    return(invisible(NULL))
-  }
-  
-  con2 <- DBI::dbConnect(RSQLite::SQLite(), datasets_db)
-  ds_tables <- DBI::dbListTables(con2)
-  DBI::dbDisconnect(con2)
-  
-  DBI::dbExecute(con, paste0("ATTACH DATABASE '", datasets_db, "' AS datasets"))
-  on.exit(DBI::dbExecute(con, "DETACH DATABASE datasets"), add = TRUE)
-  
-  # Reference tables to copy from datasets (ordered for FK dependencies).
-  ref_tables <- c(
-    # Parameter database
-    "plants_plt", "fertilizer_frt", "tillage_til", "pesticide_pst",
-    "pathogens_pth", "urban_urb", "septic_sep", "snow_sno",
-    # LUM lookup tables
-    "cntable_lum", "ovn_table_lum", "cons_prac_lum",
-    # Operations (graze_ops depends on fertilizer_frt)
-    "harv_ops", "fire_ops", "irr_ops", "sweep_ops", "chem_app_ops",
-    "graze_ops",
-    # Structural BMPs
-    "bmpuser_str", "filterstrip_str", "grassedww_str",
-    "septic_str", "tiledrain_str",
-    # Calibration
-    "cal_parms_cal",
-    # Soils LTE
-    "soils_lte_sol",
-    # Land use (depends on cntable, cons_prac, ovn_table, etc.)
-    "landuse_lum"
-  )
-  
-  for (tbl in ref_tables) {
-    # Skip if the source table does not exist in the datasets database
-    if (!(tbl %in% ds_tables)) next
-    n <- .safe_table_count(con, tbl)
-    if (n <= 0L) {
-      # Drop empty/wrong-schema table and recreate from datasets
-      tryCatch(
-        DBI::dbExecute(con, paste0("DROP TABLE IF EXISTS main.", tbl)),
-        error = function(e) NULL
-      )
-      DBI::dbExecute(con, paste0(
-        "CREATE TABLE main.", tbl,
-        " AS SELECT * FROM datasets.", tbl
-      ))
+
+  has_ref_hawqs <- nzchar(ref_hawqs_db) && file.exists(ref_hawqs_db)
+  has_proj_hawqs <- nzchar(proj_hawqs_db) && file.exists(proj_hawqs_db)
+  has_proj <- nzchar(proj_db) && file.exists(proj_db)
+
+  if (!has_ref_hawqs && !has_proj) return(invisible(NULL))
+
+  # ------------------------------------------------------------------
+  # 1.  HAWQS Reference database  (primary source for parameter data)
+  # ------------------------------------------------------------------
+  if (has_ref_hawqs) {
+    con2 <- DBI::dbConnect(RSQLite::SQLite(), ref_hawqs_db)
+    ref_tables_avail <- DBI::dbListTables(con2)
+    DBI::dbDisconnect(con2)
+
+    DBI::dbExecute(con, paste0(
+      "ATTACH DATABASE '", ref_hawqs_db, "' AS ref_hawqs"))
+    on.exit(tryCatch(DBI::dbExecute(con, "DETACH DATABASE ref_hawqs"),
+                     error = function(e) NULL), add = TRUE)
+
+    # Reference tables to copy (ordered for FK dependencies)
+    ref_tables <- c(
+      # Parameter database
+      "plants_plt", "fertilizer_frt", "tillage_til", "pesticide_pst",
+      "pathogens_pth", "urban_urb", "septic_sep", "snow_sno",
+      # LUM lookup tables
+      "cntable_lum", "ovn_table_lum", "cons_prac_lum",
+      # Operations (graze_ops depends on fertilizer_frt)
+      "harv_ops", "fire_ops", "irr_ops", "sweep_ops", "chem_app_ops",
+      "graze_ops",
+      # Structural BMPs
+      "bmpuser_str", "filterstrip_str", "grassedww_str",
+      "septic_str", "tiledrain_str",
+      # Calibration
+      "cal_parms_cal",
+      # Soils LTE
+      "soils_lte_sol",
+      # Land use (depends on cntable, cons_prac, ovn_table, etc.)
+      "landuse_lum",
+      # Management schedules (HAWQS-specific rich data)
+      "management_sch", "management_sch_auto", "management_sch_op",
+      # Basin parameters
+      "codes_bsn", "parameters_bsn",
+      # Initial conditions
+      "plant_ini", "plant_ini_item",
+      # Print settings
+      "print_prt", "print_prt_object",
+      # File CIO
+      "file_cio", "file_cio_classification",
+      # Soil and weather generator data from HAWQS ref
+      "soil", "soil_layer", "wgn", "wgn_mon",
+      # HAWQS-specific reference tables
+      "urban", "NLCD_CDL_color_scheme", "tropical_bounds", "version"
+    )
+
+    for (tbl in ref_tables) {
+      if (!(tbl %in% ref_tables_avail)) next
+      n <- .safe_table_count(con, tbl)
+      if (n <= 0L) {
+        tryCatch(
+          DBI::dbExecute(con, paste0("DROP TABLE IF EXISTS main.", tbl)),
+          error = function(e) NULL
+        )
+        DBI::dbExecute(con, paste0(
+          "CREATE TABLE main.", tbl,
+          " AS SELECT * FROM ref_hawqs.", tbl
+        ))
+      }
     }
+
+    # Decision tables from HAWQS ref
+    dtl_tables_available <- all(c("d_table_dtl", "d_table_dtl_cond",
+      "d_table_dtl_cond_alt", "d_table_dtl_act", "d_table_dtl_act_out") %in%
+      ref_tables_avail)
+    if (dtl_tables_available && .safe_table_count(con, "d_table_dtl") <= 0L) {
+      .copy_decision_tables(con, "ref_hawqs")
+    }
+
+    DBI::dbExecute(con, "DETACH DATABASE ref_hawqs")
+    # Remove on.exit handler for detach since we've already done it
   }
-  
-  # Decision tables: copy lum.dtl + selected res_rel.dtl (non-LTE)
-  dtl_tables_available <- all(c("d_table_dtl", "d_table_dtl_cond",
-    "d_table_dtl_cond_alt", "d_table_dtl_act", "d_table_dtl_act_out") %in%
-    ds_tables)
-  if (dtl_tables_available && .safe_table_count(con, "d_table_dtl") <= 0L) {
+
+  # ------------------------------------------------------------------
+  # 2.  Standard project template (fallback for anything not in HAWQS ref)
+  # ------------------------------------------------------------------
+  if (has_proj) {
+    con2 <- DBI::dbConnect(RSQLite::SQLite(), proj_db)
+    ds_tables <- DBI::dbListTables(con2)
+    DBI::dbDisconnect(con2)
+
+    DBI::dbExecute(con, paste0(
+      "ATTACH DATABASE '", proj_db, "' AS datasets"))
+    on.exit(tryCatch(DBI::dbExecute(con, "DETACH DATABASE datasets"),
+                     error = function(e) NULL), add = TRUE)
+
+    # Fallback reference tables (same list as before)
+    fallback_tables <- c(
+      "plants_plt", "fertilizer_frt", "tillage_til", "pesticide_pst",
+      "pathogens_pth", "urban_urb", "septic_sep", "snow_sno",
+      "cntable_lum", "ovn_table_lum", "cons_prac_lum",
+      "harv_ops", "fire_ops", "irr_ops", "sweep_ops", "chem_app_ops",
+      "graze_ops",
+      "bmpuser_str", "filterstrip_str", "grassedww_str",
+      "septic_str", "tiledrain_str",
+      "cal_parms_cal", "soils_lte_sol", "landuse_lum"
+    )
+
+    for (tbl in fallback_tables) {
+      if (!(tbl %in% ds_tables)) next
+      n <- .safe_table_count(con, tbl)
+      if (n <= 0L) {
+        tryCatch(
+          DBI::dbExecute(con, paste0("DROP TABLE IF EXISTS main.", tbl)),
+          error = function(e) NULL
+        )
+        DBI::dbExecute(con, paste0(
+          "CREATE TABLE main.", tbl,
+          " AS SELECT * FROM datasets.", tbl
+        ))
+      }
+    }
+
+    # Decision tables fallback
+    dtl_fb_available <- all(c("d_table_dtl", "d_table_dtl_cond",
+      "d_table_dtl_cond_alt", "d_table_dtl_act", "d_table_dtl_act_out") %in%
+      ds_tables)
+    if (dtl_fb_available && .safe_table_count(con, "d_table_dtl") <= 0L) {
+      .copy_decision_tables(con, "datasets")
+    }
+
+    DBI::dbExecute(con, "DETACH DATABASE datasets")
+  }
+
+  # ------------------------------------------------------------------
+  # 3.  HAWQS project template (HAWQS-specific tables)
+  # ------------------------------------------------------------------
+  if (has_proj_hawqs) {
+    con2 <- DBI::dbConnect(RSQLite::SQLite(), proj_hawqs_db)
+    hawqs_proj_tables <- DBI::dbListTables(con2)
+    DBI::dbDisconnect(con2)
+
+    DBI::dbExecute(con, paste0(
+      "ATTACH DATABASE '", proj_hawqs_db, "' AS proj_hawqs"))
+    on.exit(tryCatch(DBI::dbExecute(con, "DETACH DATABASE proj_hawqs"),
+                     error = function(e) NULL), add = TRUE)
+
+    # HAWQS-specific tables to copy
+    hawqs_tables <- c(
+      "plant_HAWQS", "urban_HAWQS",
+      "statsgo_ssurgo_lkey", "statsgo_ssurgo_lkey1"
+    )
+    # CDL landuse field tables
+    cdl_tables <- paste0("landuse_fields_CDL_",
+                         sprintf("%02d", seq_len(18)))
+    hawqs_tables <- c(hawqs_tables, cdl_tables)
+
+    for (tbl in hawqs_tables) {
+      if (!(tbl %in% hawqs_proj_tables)) next
+      n <- .safe_table_count(con, tbl)
+      if (n <= 0L) {
+        tryCatch(
+          DBI::dbExecute(con,
+            paste0("DROP TABLE IF EXISTS main.[", tbl, "]")),
+          error = function(e) NULL
+        )
+        DBI::dbExecute(con, paste0(
+          "CREATE TABLE main.[", tbl,
+          "] AS SELECT * FROM proj_hawqs.[", tbl, "]"
+        ))
+      }
+    }
+
+    DBI::dbExecute(con, "DETACH DATABASE proj_hawqs")
+  }
+
+  invisible(NULL)
+}
+
+
+#' Copy decision tables from an ATTACHed database
+#'
+#' @param con DBI connection (with database already ATTACHed).
+#' @param alias Character alias of the ATTACHed database
+#'   (e.g. \code{"ref_hawqs"} or \code{"datasets"}).
+#' @noRd
+.copy_decision_tables <- function(con, alias) {
+  tryCatch(
+    DBI::dbExecute(con, "DROP TABLE IF EXISTS main.d_table_dtl"),
+    error = function(e) NULL
+  )
+  DBI::dbExecute(con, paste0("
+    CREATE TABLE main.d_table_dtl AS
+    SELECT * FROM ", alias, ".d_table_dtl
+    WHERE file_name IN ('lum.dtl', 'res_rel.dtl')
+      AND (file_name != 'res_rel.dtl'
+           OR name IN ('corps_med_res1','corps_med_res',
+                       'wetland','drawdown_days','flood_season'))"))
+
+  for (sub_tbl in c("d_table_dtl_cond", "d_table_dtl_cond_alt",
+                    "d_table_dtl_act", "d_table_dtl_act_out")) {
     tryCatch(
-      DBI::dbExecute(con, "DROP TABLE IF EXISTS main.d_table_dtl"),
+      DBI::dbExecute(con, paste0("DROP TABLE IF EXISTS main.", sub_tbl)),
       error = function(e) NULL
     )
-    DBI::dbExecute(con, "
-      CREATE TABLE main.d_table_dtl AS
-      SELECT * FROM datasets.d_table_dtl
-      WHERE file_name IN ('lum.dtl', 'res_rel.dtl')
-        AND (file_name != 'res_rel.dtl'
-             OR name IN ('corps_med_res1','corps_med_res',
-                         'wetland','drawdown_days','flood_season'))")
-    
-    for (sub_tbl in c("d_table_dtl_cond", "d_table_dtl_cond_alt",
-                      "d_table_dtl_act", "d_table_dtl_act_out")) {
-      tryCatch(
-        DBI::dbExecute(con, paste0("DROP TABLE IF EXISTS main.", sub_tbl)),
-        error = function(e) NULL
-      )
-    }
-    
-    DBI::dbExecute(con, "
-      CREATE TABLE main.d_table_dtl_cond AS
-      SELECT c.* FROM datasets.d_table_dtl_cond c
-      INNER JOIN main.d_table_dtl d ON c.d_table_id = d.id")
-    
-    DBI::dbExecute(con, "
-      CREATE TABLE main.d_table_dtl_cond_alt AS
-      SELECT ca.* FROM datasets.d_table_dtl_cond_alt ca
-      INNER JOIN main.d_table_dtl_cond c ON ca.cond_id = c.id")
-    
-    DBI::dbExecute(con, "
-      CREATE TABLE main.d_table_dtl_act AS
-      SELECT a.* FROM datasets.d_table_dtl_act a
-      INNER JOIN main.d_table_dtl d ON a.d_table_id = d.id")
-    
-    DBI::dbExecute(con, "
-      CREATE TABLE main.d_table_dtl_act_out AS
-      SELECT ao.* FROM datasets.d_table_dtl_act_out ao
-      INNER JOIN main.d_table_dtl_act a ON ao.act_id = a.id")
   }
-  
-  invisible(NULL)
+
+  DBI::dbExecute(con, paste0("
+    CREATE TABLE main.d_table_dtl_cond AS
+    SELECT c.* FROM ", alias, ".d_table_dtl_cond c
+    INNER JOIN main.d_table_dtl d ON c.d_table_id = d.id"))
+
+  DBI::dbExecute(con, paste0("
+    CREATE TABLE main.d_table_dtl_cond_alt AS
+    SELECT ca.* FROM ", alias, ".d_table_dtl_cond_alt ca
+    INNER JOIN main.d_table_dtl_cond c ON ca.cond_id = c.id"))
+
+  DBI::dbExecute(con, paste0("
+    CREATE TABLE main.d_table_dtl_act AS
+    SELECT a.* FROM ", alias, ".d_table_dtl_act a
+    INNER JOIN main.d_table_dtl d ON a.d_table_id = d.id"))
+
+  DBI::dbExecute(con, paste0("
+    CREATE TABLE main.d_table_dtl_act_out AS
+    SELECT ao.* FROM ", alias, ".d_table_dtl_act_out ao
+    INNER JOIN main.d_table_dtl_act a ON ao.act_id = a.id"))
 }
 
 #' Ensure all required SWAT+ tables exist before writing files
