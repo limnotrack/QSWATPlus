@@ -65,6 +65,9 @@ qswat_write_database <- function(project,
 
   message("Writing SWAT+ project database...")
 
+  # Copy reference database to project folder
+  ref_db_path <- .copy_reference_database(project$project_dir)
+
   con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
 
@@ -72,7 +75,7 @@ qswat_write_database <- function(project,
   .create_db_tables(con)
 
   # Write project configuration
-  .write_project_config(con, project, db_file)
+  .write_project_config(con, project, db_file, ref_db_path)
 
   # Write subbasin data
   .write_subbasin_table(con, project$basin_data)
@@ -899,12 +902,36 @@ qswat_write_database <- function(project,
 }
 
 
+#' Copy Reference Database to Project Folder
+#'
+#' Copies the bundled QSWATPlusProj.sqlite reference database to the project
+#' folder as `swatplus_datasets.sqlite`, mirroring the behaviour of the
+#' SWAT+ Editor.  Returns the normalised path to the copy (or NA if the
+#' bundled source cannot be found).
+#' @noRd
+.copy_reference_database <- function(project_dir) {
+  src <- system.file("extdata", "QSWATPlusProj.sqlite",
+                     package = "rQSWATPlus")
+  if (!nzchar(src) || !file.exists(src)) {
+    message("Reference database not found; skipping copy.")
+    return(NA_character_)
+  }
+
+  dest <- file.path(project_dir, "swatplus_datasets.sqlite")
+  if (!file.exists(dest)) {
+    file.copy(src, dest)
+    message("Reference database copied to: ", dest)
+  }
+  normalizePath(dest, mustWork = FALSE)
+}
+
+
 #' Write project_config Table
 #'
 #' Populates the project_config table with project metadata so that
 #' SWAT+ Editor can recognize and open the database.
 #' @noRd
-.write_project_config <- function(con, project, db_file) {
+.write_project_config <- function(con, project, db_file, ref_db_path = NA_character_) {
   project_name <- basename(project$project_dir)
   project_dir  <- normalizePath(project$project_dir, mustWork = FALSE)
 
@@ -916,7 +943,7 @@ qswat_write_database <- function(project,
     gis_type = "qgis",
     gis_version = NA_character_,
     project_db = normalizePath(db_file, mustWork = FALSE),
-    reference_db = NA_character_,
+    reference_db = ref_db_path,
     wgn_db = NA_character_,
     wgn_table_name = "wgn_cfsr_world",
     weather_data_dir = NA_character_,

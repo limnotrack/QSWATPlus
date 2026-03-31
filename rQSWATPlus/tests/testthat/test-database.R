@@ -201,3 +201,92 @@ test_that("full database write works with mock data", {
   ld <- DBI::dbGetQuery(con, "SELECT * FROM LSUSDATA")
   expect_equal(nrow(ld), 2)
 })
+
+test_that("reference database is copied to project folder", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  project_dir <- tempfile("refdb_")
+  dir.create(project_dir)
+  on.exit(unlink(project_dir, recursive = TRUE), add = TRUE)
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  project <- structure(list(
+    project_dir = project_dir,
+    hru_data = data.frame(
+      hru_id = 1:2, subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600), min_elevation = c(490, 580),
+      max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  result <- qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  # Reference database should have been copied
+  ref_db <- file.path(project_dir, "swatplus_datasets.sqlite")
+  expect_true(file.exists(ref_db))
+
+  # project_config.reference_db should point to the copy
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  pc <- DBI::dbGetQuery(con, "SELECT reference_db FROM project_config")
+  expect_equal(pc$reference_db, normalizePath(ref_db, mustWork = FALSE))
+})
+
+test_that("second write does not re-copy reference database", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  project_dir <- tempfile("refdb2_")
+  dir.create(project_dir)
+  on.exit(unlink(project_dir, recursive = TRUE), add = TRUE)
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  project <- structure(list(
+    project_dir = project_dir,
+    hru_data = data.frame(
+      hru_id = 1L, subbasin = 1L, landuse = "AGRL", soil = "TX047",
+      slope_class = 1L, cell_count = 100L, area_ha = 10.0,
+      mean_elevation = 500, mean_slope = 3.0, stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = 1L, area_ha = 10.0, mean_elevation = 500,
+      min_elevation = 490, max_elevation = 510, mean_slope = 3.0,
+      n_hrus = 1L, n_landuses = 1L, n_soils = 1L,
+      stringsAsFactors = FALSE
+    ),
+    slope_classes = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = 1L, DSLINKNO = -1L, WSNO = 1L, strmOrder = 1L,
+      Length = 500, stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+  ref_db <- file.path(project_dir, "swatplus_datasets.sqlite")
+  mtime1 <- file.info(ref_db)$mtime
+
+  # Write again - should NOT overwrite the existing copy
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+  mtime2 <- file.info(ref_db)$mtime
+  expect_equal(mtime1, mtime2)
+})
