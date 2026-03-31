@@ -1,5 +1,5 @@
 # Helper for TauDEM skip guards used across workflow integration tests
-.skip_if_no_taudem <- function() {
+skip_if_no_taudem <- function() {
   skip_if_not_installed("traudem")
   taudem_ok <- tryCatch({
     traudem::taudem_sitrep()
@@ -9,7 +9,7 @@
 }
 
 test_that("stepped workflow works", {
-  .skip_if_no_taudem()
+  skip_if_no_taudem()
 
   dem <- system.file("extdata", "ravn_dem.tif", package = "rQSWATPlus")
   landuse <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
@@ -65,7 +65,7 @@ test_that("stepped workflow works", {
 })
 
 test_that("qswat_run works", {
-  .skip_if_no_taudem()
+  skip_if_no_taudem()
 
   dem <- system.file("extdata", "ravn_dem.tif", package = "rQSWATPlus")
   landuse <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
@@ -99,7 +99,7 @@ test_that("qswat_run works", {
 
 # Full end-to-end integration test: build project and verify SWAT+ Editor readiness
 test_that("example dataset produces a SWAT+ Editor-ready database", {
-  .skip_if_no_taudem()
+  skip_if_no_taudem()
 
   dem        <- system.file("extdata", "ravn_dem.tif",     package = "rQSWATPlus")
   landuse    <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
