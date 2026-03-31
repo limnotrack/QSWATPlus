@@ -1260,7 +1260,6 @@ populate_from_datasets <- function(con) {
     }
 
     DBI::dbExecute(con, "DETACH DATABASE ref_hawqs")
-    # Remove on.exit handler for detach since we've already done it
   }
 
   # ------------------------------------------------------------------
