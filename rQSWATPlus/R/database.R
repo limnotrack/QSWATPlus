@@ -622,7 +622,7 @@ qswat_write_database <- function(project,
       slr      VARCHAR (255),
       hmd      VARCHAR (255),
       wnd      VARCHAR (255),
-      wnd_dir  VARCHAR (255),
+      pet      VARCHAR (255),
       atmo_dep VARCHAR (255),
       lat      REAL,
       lon      REAL
