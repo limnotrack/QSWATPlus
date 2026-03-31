@@ -172,7 +172,7 @@ test_that("example dataset produces a SWAT+ Editor-ready database", {
   expect_gt(nrow(routing), 0L, label = "gis_routing has rows")
 
   # ---- SWAT+ Editor compatibility check passes ------------------------------
-  result <- qswat_check_database(db_file, verbose = FALSE)
+  result <- qswat_check_database(db_file, verbose = TRUE)
   expect_true(
     result$passed,
     label = paste(
