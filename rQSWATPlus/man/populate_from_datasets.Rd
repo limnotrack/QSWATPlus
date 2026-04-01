@@ -2,7 +2,7 @@
 % Please edit documentation in R/database.R
 \name{populate_from_datasets}
 \alias{populate_from_datasets}
-\title{Populate reference/parameter tables from the SWAT+ datasets database}
+\title{Populate reference/parameter tables from the SWAT+ datasets databases}
 \usage{
 populate_from_datasets(con)
 }
@@ -14,10 +14,22 @@ Invisible \code{NULL}.
 }
 \description{
 Uses SQLite ATTACH to copy reference data (plants, fertilizers, operations,
-structural BMPs, land use, calibration parameters, etc.) from the
-\pkg{rQSWATPlus} reference database (\file{QSWATPlusProj.sqlite}) into the
-project database.  Only empty or missing tables are populated; tables with
-existing data are left untouched.  This mirrors the Python SWAT+ Editor
-\code{SetupProjectDatabase.initialize_data()}.
+structural BMPs, land use, calibration parameters, soils, weather generator,
+etc.) from the bundled reference databases into the project database.
+}
+\details{
+Data are sourced from two databases (in priority order):
+\enumerate{
+\item \file{QSWATPlusRefHAWQS.sqlite} -- rich parameter/reference data
+(plants_plt, fertilizer_frt, management schedules, soil, wgn, …)
+\item \file{QSWATPlusProj.sqlite} -- standard project template (fallback)
+}
+
+Additionally, HAWQS-specific tables (\code{plant_HAWQS}, \code{urban_HAWQS},
+CDL landuse field tables, \code{statsgo_ssurgo_lkey*}) are copied from
+\file{QSWATPlusProjHAWQS.sqlite}.
+
+Only empty or missing tables are populated; tables with existing data are
+left untouched.
 }
 \keyword{internal}

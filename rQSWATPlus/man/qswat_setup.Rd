@@ -6,18 +6,22 @@
 \usage{
 qswat_setup(
   project_dir,
-  dem_file,
-  landuse_file,
-  soil_file,
-  landuse_lookup,
-  soil_lookup,
+  overwrite = FALSE,
+  dem_file = NULL,
+  landuse_file = NULL,
+  soil_file = NULL,
+  landuse_lookup = NULL,
+  soil_lookup = NULL,
   outlet_file = NULL,
-  overwrite = FALSE
+  ...
 )
 }
 \arguments{
 \item{project_dir}{Character. Path to the project directory. Will be
 created if it does not exist.}
+
+\item{overwrite}{Logical. If TRUE, overwrite existing project files.
+Default is FALSE.}
 
 \item{dem_file}{Character. Path to the DEM (Digital Elevation Model)
 raster file (GeoTIFF or other GDAL-supported format).}
@@ -35,8 +39,8 @@ mapping raster values to SWAT+ soil names.}
 \item{outlet_file}{Character or NULL. Optional path to outlet point
 shapefile for watershed delineation.}
 
-\item{overwrite}{Logical. If TRUE, overwrite existing project files.
-Default is FALSE.}
+\item{...}{Additional arguments to include in the returned project
+object. This allows users to add custom metadata or file paths as needed.}
 }
 \value{
 A list of class \code{"qswat_project"} containing project

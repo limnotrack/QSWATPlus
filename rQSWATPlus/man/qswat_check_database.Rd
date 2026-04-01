@@ -44,6 +44,12 @@ outlet, routing percentages sum to 100
 every subbasin has at least one channel
 \item \strong{Data quality}: areas are positive, no NULL values in
 required fields
+\item \strong{Reference data}: SWAT+ parameter tables (plants_plt,
+fertilizer_frt, etc.) from QSWATPlusRefHAWQS.sqlite are
+present and non-empty
+\item \strong{HAWQS tables}: HAWQS-specific tables (plant_HAWQS,
+urban_HAWQS, CDL landuse field tables, statsgo_ssurgo_lkey)
+from QSWATPlusProjHAWQS.sqlite are present
 }
 }
 \examples{
