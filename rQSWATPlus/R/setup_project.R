@@ -6,6 +6,8 @@
 #'
 #' @param project_dir Character. Path to the project directory. Will be
 #'   created if it does not exist.
+#' @param outlet_file Character or NULL. Optional path to outlet point
+#'   shapefile for watershed delineation.
 #' @param dem_file Character. Path to the DEM (Digital Elevation Model)
 #'   raster file (GeoTIFF or other GDAL-supported format).
 #' @param landuse_file Character. Path to the land use raster file.
@@ -14,10 +16,10 @@
 #'   mapping raster values to SWAT+ land use codes.
 #' @param soil_lookup Character. Path to the soil lookup CSV file,
 #'   mapping raster values to SWAT+ soil names.
-#' @param outlet_file Character or NULL. Optional path to outlet point
-#'   shapefile for watershed delineation.
 #' @param overwrite Logical. If TRUE, overwrite existing project files.
 #'   Default is FALSE.
+#' @param ... Additional arguments to include in the returned project
+#' object. This allows users to add custom metadata or file paths as needed.
 #'
 #' @return A list of class `"qswat_project"` containing project
 #'   configuration and file paths.
@@ -56,130 +58,121 @@
 #'
 #' @export
 qswat_setup <- function(project_dir,
-                        dem_file,
-                        landuse_file,
-                        soil_file,
-                        landuse_lookup,
-                        soil_lookup,
+                        overwrite = FALSE,
+                        dem_file = NULL,
+                        landuse_file = NULL,
+                        soil_file = NULL,
+                        landuse_lookup = NULL,
+                        soil_lookup = NULL,
                         outlet_file = NULL,
-                        overwrite = FALSE) {
-
-  # Validate inputs exist
-  for (f in c(dem_file, landuse_file, soil_file, landuse_lookup, soil_lookup)) {
+                        ...) {
+  
+  # 1. Validate inputs only if they are provided
+  input_files <- list(
+    dem = dem_file, 
+    landuse = landuse_file, 
+    soil = soil_file, 
+    lu_lookup = landuse_lookup, 
+    s_lookup = soil_lookup,
+    outlet = outlet_file
+  )
+  
+  for (f in Filter(Negate(is.null), input_files)) {
     if (!file.exists(f)) {
       stop("File not found: ", f, call. = FALSE)
     }
   }
-  if (!is.null(outlet_file) && !file.exists(outlet_file)) {
-    stop("Outlet file not found: ", outlet_file, call. = FALSE)
-  }
-
-  # Create project directory structure
+  
+  # 2. Create project directory structure
   dirs <- file.path(project_dir, c("Source", "Watershed",
-                                    "Watershed/Rasters",
-                                    "Watershed/Shapes",
-                                    "Watershed/Text"))
+                                   "Watershed/Rasters",
+                                   "Watershed/Shapes",
+                                   "Watershed/Text"))
   for (d in c(project_dir, dirs)) {
     if (!dir.exists(d)) {
       dir.create(d, recursive = TRUE)
     }
   }
-
-  # Load and validate rasters
-  dem <- terra::rast(dem_file)
-  landuse <- terra::rast(landuse_file)
-  soil <- terra::rast(soil_file)
-
-  # Check CRS
-  dem_crs <- terra::crs(dem)
-  if (dem_crs == "") {
-    warning("DEM has no coordinate reference system defined.", call. = FALSE)
+  
+  # 3. Process DEM metadata if provided
+  dem_crs <- NULL
+  units <- NULL
+  res <- NULL
+  ext <- NULL
+  dims <- c(nrow = NULL, ncol = NULL)
+  
+  if (!is.null(dem_file)) {
+    dem <- terra::rast(dem_file)
+    dem_crs <- terra::crs(dem)
+    if (dem_crs == "") warning("DEM has no CRS defined.", call. = FALSE)
+    
+    units <- .detect_units(terra::crs(dem, describe = TRUE))
+    res   <- terra::res(dem)
+    ext   <- as.vector(terra::ext(dem))
+    dims  <- c(nrow = terra::nrow(dem), ncol = terra::ncol(dem))
   }
-
-  # Detect horizontal units
-  crs_info <- terra::crs(dem, describe = TRUE)
-  units <- .detect_units(crs_info)
-
-  # Copy source files to project
-  dem_proj <- file.path(project_dir, "Source", basename(dem_file))
-  landuse_proj <- file.path(project_dir, "Source", basename(landuse_file))
-  soil_proj <- file.path(project_dir, "Source", basename(soil_file))
-  lu_lookup_proj <- file.path(project_dir, "Source", basename(landuse_lookup))
-  soil_lookup_proj <- file.path(project_dir, "Source", basename(soil_lookup))
-
-  if (overwrite || !file.exists(dem_proj)) {
-    file.copy(dem_file, dem_proj, overwrite = overwrite)
+  
+  # 4. Helper for copying files to "Source"
+  copy_to_source <- function(file_path) {
+    if (is.null(file_path)) return(NULL)
+    dest <- file.path(project_dir, "Source", basename(file_path))
+    if (overwrite || !file.exists(dest)) {
+      file.copy(file_path, dest, overwrite = overwrite)
+    }
+    return(normalizePath(dest, mustWork = FALSE))
   }
-  if (overwrite || !file.exists(landuse_proj)) {
-    file.copy(landuse_file, landuse_proj, overwrite = overwrite)
-  }
-  if (overwrite || !file.exists(soil_proj)) {
-    file.copy(soil_file, soil_proj, overwrite = overwrite)
-  }
-  if (overwrite || !file.exists(lu_lookup_proj)) {
-    file.copy(landuse_lookup, lu_lookup_proj, overwrite = overwrite)
-  }
-  if (overwrite || !file.exists(soil_lookup_proj)) {
-    file.copy(soil_lookup, soil_lookup_proj, overwrite = overwrite)
-  }
-
+  
+  # Copy standard files
+  dem_proj     <- copy_to_source(dem_file)
+  landuse_proj <- copy_to_source(landuse_file)
+  soil_proj    <- copy_to_source(soil_file)
+  lu_lkp_proj  <- copy_to_source(landuse_lookup)
+  s_lkp_proj   <- copy_to_source(soil_lookup)
+  
+  # Special handling for Shapefile (Outlet) components
   outlet_proj <- NULL
   if (!is.null(outlet_file)) {
-    outlet_base <- tools::file_path_sans_ext(basename(outlet_file))
-    outlet_ext <- tools::file_ext(outlet_file)
-    outlet_dir <- dirname(outlet_file)
-    # Copy all shapefile components
-    for (ext in c("shp", "shx", "dbf", "prj", "cpg", "qpj")) {
-      src <- file.path(outlet_dir, paste0(outlet_base, ".", ext))
+    out_base <- tools::file_path_sans_ext(basename(outlet_file))
+    out_dir  <- dirname(outlet_file)
+    for (ext_sh in c("shp", "shx", "dbf", "prj", "cpg", "qpj")) {
+      src <- file.path(out_dir, paste0(out_base, ".", ext_sh))
       if (file.exists(src)) {
-        file.copy(src, file.path(project_dir, "Source",
-                                 paste0(outlet_base, ".", ext)),
+        file.copy(src, file.path(project_dir, "Source", paste0(out_base, ".", ext_sh)), 
                   overwrite = overwrite)
       }
     }
-    outlet_proj <- file.path(project_dir, "Source",
-                             paste0(outlet_base, ".shp"))
+    outlet_proj <- normalizePath(file.path(project_dir, "Source", paste0(out_base, ".shp")), mustWork = FALSE)
   }
-
-  # Build project object
+  
+  # 5. Build the project object
   project <- list(
-    project_dir = normalizePath(project_dir),
-    dem_file = normalizePath(dem_proj),
-    landuse_file = normalizePath(landuse_proj),
-    soil_file = normalizePath(soil_proj),
-    landuse_lookup = normalizePath(lu_lookup_proj),
-    soil_lookup = normalizePath(soil_lookup_proj),
-    outlet_file = if (!is.null(outlet_proj)) normalizePath(outlet_proj) else NULL,
-    crs = dem_crs,
-    units = units,
-    cell_size = terra::res(dem),
-    extent = as.vector(terra::ext(dem)),
-    nrow = terra::nrow(dem),
-    ncol = terra::ncol(dem),
-    # TauDEM output files (populated during delineation)
-    fel_file = NULL,
-    p_file = NULL,
-    sd8_file = NULL,
-    slp_file = NULL,
-    ang_file = NULL,
-    ad8_file = NULL,
-    sca_file = NULL,
-    src_stream_file = NULL,
-    src_channel_file = NULL,
-    ord_file = NULL,
-    tree_file = NULL,
-    coord_file = NULL,
-    stream_file = NULL,
-    watershed_file = NULL,
-    # HRU results (populated during HRU creation)
-    hru_data = NULL,
-    basin_data = NULL,
-    stream_threshold = NULL,
-    channel_threshold = NULL,
-    # Database file for output
-    db_file = NULL
+    project_dir      = normalizePath(project_dir),
+    dem_file         = dem_proj,
+    landuse_file     = landuse_proj,
+    soil_file        = soil_proj,
+    landuse_lookup   = lu_lkp_proj,
+    soil_lookup      = s_lkp_proj,
+    outlet_file      = outlet_proj,
+    crs              = dem_crs,
+    units            = units,
+    cell_size        = res,
+    extent           = ext,
+    nrow             = dims["nrow"],
+    ncol             = dims["ncol"],
+    # Placeholders for future steps
+    fel_file = NULL, p_file = NULL, sd8_file = NULL, slp_file = NULL,
+    ang_file = NULL, ad8_file = NULL, sca_file = NULL, src_stream_file = NULL,
+    src_channel_file = NULL, ord_file = NULL, tree_file = NULL, coord_file = NULL,
+    stream_file = NULL, watershed_file = NULL, hru_data = NULL, basin_data = NULL,
+    stream_threshold = NULL, channel_threshold = NULL, db_file = NULL
   )
-
+  
+  # Merge ellipsis arguments
+  extra_args <- list(...)
+  if (length(extra_args) > 0) {
+    project <- utils::modifyList(project, extra_args)
+  }
+  
   class(project) <- "qswat_project"
   return(project)
 }
