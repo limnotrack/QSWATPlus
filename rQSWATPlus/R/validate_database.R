@@ -34,6 +34,12 @@
 #'     every subbasin has at least one channel
 #'   \item **Data quality**: areas are positive, no NULL values in
 #'     required fields
+#'   \item **Reference data**: SWAT+ parameter tables (plants_plt,
+#'     fertilizer_frt, etc.) from QSWATPlusRefHAWQS.sqlite are
+#'     present and non-empty
+#'   \item **HAWQS tables**: HAWQS-specific tables (plant_HAWQS,
+#'     urban_HAWQS, CDL landuse field tables, statsgo_ssurgo_lkey)
+#'     from QSWATPlusProjHAWQS.sqlite are present
 #' }
 #'
 #' @examples
@@ -89,13 +95,44 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
     )
   }
 
-  optional_tables <- c("gis_aquifers", "gis_deep_aquifers", "gis_water",
-                        "gis_points", "gis_elevationbands",
-                        "gis_landexempt", "gis_splithrus",
-                        "BASINSDATA", "HRUSDATA", "LSUSDATA", "WATERDATA",
-                        "config_delin", "config_hru", "config_landuse",
-                        "config_lsu", "config_observed", "config_params",
-                        "config_soil")
+  # Optional GIS / config tables (warnings only)
+  optional_tables <- c(
+    # GIS tables
+    "gis_aquifers", "gis_deep_aquifers", "gis_water",
+    "gis_points", "gis_elevationbands",
+    "gis_landexempt", "gis_splithrus",
+    # Intermediate data
+    "BASINSDATA", "HRUSDATA", "LSUSDATA", "WATERDATA",
+    # Config tables
+    "config_delin", "config_hru", "config_landuse",
+    "config_lsu", "config_observed", "config_params",
+    "config_soil",
+    # Reference parameter tables (from QSWATPlusRefHAWQS.sqlite)
+    "plants_plt", "fertilizer_frt", "tillage_til", "pesticide_pst",
+    "pathogens_pth", "urban_urb", "septic_sep", "snow_sno",
+    "cntable_lum", "ovn_table_lum", "cons_prac_lum",
+    "harv_ops", "fire_ops", "irr_ops", "sweep_ops", "chem_app_ops",
+    "graze_ops",
+    "bmpuser_str", "filterstrip_str", "grassedww_str",
+    "septic_str", "tiledrain_str",
+    "cal_parms_cal", "soils_lte_sol", "landuse_lum",
+    "management_sch", "management_sch_auto", "management_sch_op",
+    "codes_bsn", "parameters_bsn",
+    "plant_ini", "plant_ini_item",
+    "d_table_dtl", "d_table_dtl_cond", "d_table_dtl_cond_alt",
+    "d_table_dtl_act", "d_table_dtl_act_out",
+    "file_cio", "file_cio_classification",
+    "soil", "soil_layer", "wgn", "wgn_mon",
+    "NLCD_CDL_color_scheme", "tropical_bounds", "version",
+    # HAWQS-specific tables (from QSWATPlusProjHAWQS.sqlite)
+    "plant_HAWQS", "urban_HAWQS",
+    "statsgo_ssurgo_lkey", "statsgo_ssurgo_lkey1"
+  )
+  # CDL landuse field tables (from QSWATPlusProjHAWQS.sqlite)
+  optional_tables <- c(optional_tables,
+                       paste0("landuse_fields_CDL_",
+                              sprintf("%02d", seq_len(18))))
+
   for (tbl in optional_tables) {
     if (!(tbl %in% existing_tables)) {
       warn(paste0("Optional table '", tbl, "' is missing"))
@@ -321,6 +358,41 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
     if (ok) "No NULL IDs in gis_hrus"
     else paste0(null_ids, " HRU row(s) have NULL id")
   )
+
+  # ---- 8. Reference data (from QSWATPlusRefHAWQS.sqlite) ----
+  # These tables should have data when they exist; warn if empty.
+  ref_data_tables <- c(
+    "plants_plt", "fertilizer_frt", "tillage_til", "pesticide_pst",
+    "urban_urb", "cal_parms_cal", "landuse_lum",
+    "cntable_lum", "ovn_table_lum", "cons_prac_lum",
+    "harv_ops", "graze_ops", "soils_lte_sol",
+    "d_table_dtl", "file_cio_classification"
+  )
+  for (tbl in ref_data_tables) {
+    if (!(tbl %in% existing_tables)) next
+    n <- tryCatch(
+      DBI::dbGetQuery(con, paste("SELECT COUNT(*) AS n FROM", tbl))$n,
+      error = function(e) NA_integer_
+    )
+    if (!is.na(n) && n == 0L) {
+      warn(paste0("Reference table '", tbl, "' exists but has no data"))
+    }
+  }
+
+  # ---- 9. HAWQS-specific tables (from QSWATPlusProjHAWQS.sqlite) ----
+  hawqs_tables <- c(
+    "plant_HAWQS", "urban_HAWQS",
+    "statsgo_ssurgo_lkey", "statsgo_ssurgo_lkey1"
+  )
+  hawqs_tables <- c(hawqs_tables,
+                    paste0("landuse_fields_CDL_",
+                           sprintf("%02d", seq_len(18))))
+  missing_hawqs <- hawqs_tables[!hawqs_tables %in% existing_tables]
+  if (length(missing_hawqs) > 0) {
+    warn(paste0(length(missing_hawqs), " HAWQS-specific table(s) are ",
+                "missing (install QSWATPlusProjHAWQS.sqlite to enable): ",
+                paste(missing_hawqs, collapse = ", ")))
+  }
 
   result <- .build_check_result(checks, warnings_list, errors_list)
   if (verbose) .print_check_result(result)

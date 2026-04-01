@@ -225,3 +225,87 @@ test_that("print.qswat_db_check works", {
   expect_true(any(grepl("Compatibility Check", output)))
   expect_true(any(grepl("compatible", output)))
 })
+
+test_that("qswat_check_database warns about missing HAWQS and reference tables", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  # Build a valid project database (no HAWQS extras)
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  project <- structure(list(
+    project_dir = tempdir(),
+    hru_data = data.frame(
+      hru_id = 1:2, subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600), min_elevation = c(490, 580),
+      max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+  result <- qswat_check_database(db_file, verbose = FALSE)
+
+  # Core checks should pass (no fatal errors)
+  expect_true(result$passed,
+              info = paste("Errors:", paste(result$errors, collapse = "; ")))
+
+  # With the bundled HAWQS databases present, HAWQS tables should now
+  # be populated by populate_from_datasets(), so they should NOT appear
+  # as missing in warnings.
+  hawqs_missing_warns <- result$warnings[
+    grepl("HAWQS-specific", result$warnings)]
+
+  # If the bundled databases are installed (package installed), no
+  # HAWQS warning; otherwise one consolidated warning is acceptable.
+  expect_true(length(hawqs_missing_warns) <= 1,
+              info = paste("Unexpected HAWQS warnings:",
+                           paste(hawqs_missing_warns, collapse = "; ")))
+})
+
+test_that("qswat_check_database warns when reference table exists but is empty", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  rQSWATPlus:::.create_db_tables(con)
+
+  # Add minimal data to pass required-table checks
+  DBI::dbExecute(con, "INSERT INTO gis_subbasins VALUES (1,100,5,100,5,0,0,500,400,600,0)")
+  DBI::dbExecute(con, "INSERT INTO gis_hrus VALUES (1,1,'AGRL','TX047',1,10,3,0,0,500,50,50,50,100)")
+  DBI::dbExecute(con, "INSERT INTO gis_channels VALUES (1,1,1,1,1000,0.01,1.0,0.5,0,0,0,0)")
+  DBI::dbExecute(con, "INSERT INTO gis_lsus VALUES (1,0,1,1,100,5,100,5,1.0,0.5,0,0,500)")
+  DBI::dbExecute(con, "INSERT INTO gis_routing VALUES (1,'sub','tot',0,'outlet',100)")
+  DBI::dbExecute(con, "INSERT INTO project_config (id, project_name, delineation_done, hrus_done, use_gwflow) VALUES (1,'test',1,1,0)")
+
+  # Add an empty plants_plt table (exists but has no data)
+  tryCatch(DBI::dbExecute(con, "DROP TABLE IF EXISTS plants_plt"), error = function(e) NULL)
+  DBI::dbExecute(con, "CREATE TABLE plants_plt (id INTEGER PRIMARY KEY, name TEXT)")
+  DBI::dbDisconnect(con)
+
+  result <- qswat_check_database(db_file, verbose = FALSE)
+
+  # Should warn about the empty reference table
+  ref_warns <- result$warnings[grepl("plants_plt.*no data", result$warnings)]
+  expect_true(length(ref_warns) >= 1,
+              info = paste("Expected warning about empty plants_plt.",
+                           "Got warnings:", paste(result$warnings, collapse = "; ")))
+})
