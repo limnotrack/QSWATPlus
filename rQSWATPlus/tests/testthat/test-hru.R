@@ -70,19 +70,11 @@ test_that("HRU creation works with delineated project", {
     soil_file = soil,
     landuse_lookup = lu_lookup_file,
     soil_lookup = soil_lookup_file
-  )
-
-  project <- qswat_delineate(project, threshold = 500, quiet = TRUE)
-  project <- qswat_create_streams(project)
-
-  lu <- qswat_read_landuse_lookup(lu_lookup_file)
-  soil_lkp <- qswat_read_soil_lookup(soil_lookup_file)
-  slopes <- qswat_create_slope_classes(c(0, 5, 15, 9999))
-
-  project <- qswat_create_hrus(project, lu, soil_lkp, slopes)
-  
-  # Write the project database
-  db_path <- qswat_write_database(project, overwrite = TRUE)
+  ) |> 
+    qswat_delineate(threshold = 500, quiet = TRUE) |> 
+    qswat_create_streams() |> 
+    qswat_create_hrus() |> 
+    qswat_write_database(overwrite = TRUE)
 
   expect_false(is.null(project$hru_data))
   expect_true(nrow(project$hru_data) > 0)

@@ -94,6 +94,8 @@ test_that("qswat_run works", {
     db_file = "swat.db"
   )
 
+  result <- qswat_check_database(db_file = project$db_file, verbose = TRUE)
+  
   expect_true(file.exists(project$db_file))
 })
 
@@ -130,6 +132,9 @@ test_that("example dataset produces a SWAT+ Editor-ready database", {
   )
 
   db_file <- project$db_file
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  DBI::dbListTables(con)
+  DBI::dbDisconnect(con)
   expect_true(file.exists(db_file))
 
   # ---- Reference database was copied to the project folder -----------------
