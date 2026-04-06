@@ -73,7 +73,8 @@ test_that("qswat_run works", {
   lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
   soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
   outlet <- system.file("extdata", "ravn_outlet.shp", package = "rQSWATPlus")
-
+  usersoil <- system.file("extdata", "ravn_usersoil.csv", package = "rQSWATPlus")
+  
   skip_if(dem == "", "Example data not available")
 
   proj_dir <- file.path(tempdir(), "ravn_quick")
@@ -83,9 +84,10 @@ test_that("qswat_run works", {
     project_dir = proj_dir,
     dem_file = dem,
     landuse_file = landuse,
-    soil_file = soil,
     landuse_lookup = lu_lookup,
-    soil_lookup = soil_lookup,
+    soil_file = soil,
+    soil_lookup = soil_lookup, 
+    usersoil = usersoil,
     outlet_file = outlet,
     threshold = 500,
     slope_breaks = c(0, 5, 15, 9999),
@@ -109,6 +111,7 @@ test_that("example dataset produces a SWAT+ Editor-ready database", {
   lu_lookup  <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
   soil_lookup <- system.file("extdata", "ravn_soil.csv",   package = "rQSWATPlus")
   outlet     <- system.file("extdata", "ravn_outlet.shp",  package = "rQSWATPlus")
+  usersoil <- system.file("extdata", "ravn_usersoil.csv", package = "rQSWATPlus")
 
   skip_if(dem == "", "Example data not available")
 
@@ -121,8 +124,9 @@ test_that("example dataset produces a SWAT+ Editor-ready database", {
     dem_file       = dem,
     landuse_file   = landuse,
     soil_file      = soil,
-    landuse_lookup = lu_lookup,
     soil_lookup    = soil_lookup,
+    landuse_lookup = lu_lookup,
+    usersoil = usersoil,
     outlet_file    = outlet,
     threshold      = 500,
     slope_breaks   = c(0, 5, 15, 9999),

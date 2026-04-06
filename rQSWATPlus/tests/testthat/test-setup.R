@@ -2,9 +2,10 @@ test_that("qswat_setup creates project structure", {
   # Get example data paths
   dem <- system.file("extdata", "ravn_dem.tif", package = "rQSWATPlus")
   landuse <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
-  soil <- system.file("extdata", "ravn_soil.tif", package = "rQSWATPlus")
   lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
+  soil <- system.file("extdata", "ravn_soil.tif", package = "rQSWATPlus")
   soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
+  usersoil <- system.file("extdata", "ravn_usersoil.csv", package = "rQSWATPlus")
 
   skip_if(dem == "", message = "Example data not available")
 
@@ -17,7 +18,8 @@ test_that("qswat_setup creates project structure", {
     landuse_file = landuse,
     soil_file = soil,
     landuse_lookup = lu_lookup,
-    soil_lookup = soil_lookup
+    soil_lookup = soil_lookup, 
+    usersoil = usersoil
   )
 
   expect_s3_class(project, "qswat_project")
