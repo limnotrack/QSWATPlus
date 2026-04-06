@@ -208,6 +208,7 @@ qswat_read_usersoil <- function(csv_file) {
 
 
 
+#' Create Slope Classification Bands
 #'
 #' Defines slope percentage classes for HRU creation. Slope bands
 #' are used to further subdivide HRUs by terrain steepness.

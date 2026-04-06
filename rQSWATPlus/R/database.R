@@ -19,8 +19,8 @@
 #'     \item{`"FAO_usersoil"`}{Copy FAO global soil data (13 soil types)
 #'       from the bundled `QSWATPlusProjHAWQS.sqlite` database.}
 #'     \item{`"global_usersoil"`}{Copy the full global soil dataset
-#'       (4932 soil types) from the bundled `QSWATPlusProjHAWQS.sqlite`
-#'       database.}
+#'       (thousands of soil types) from the bundled
+#'       `QSWATPlusProjHAWQS.sqlite` database.}
 #'     \item{file path}{Path to a CSV file containing soil parameters in
 #'       the `global_usersoil` table format. The file must have at minimum
 #'       a column named `SNAM` (soil name). See [qswat_read_usersoil()].}
