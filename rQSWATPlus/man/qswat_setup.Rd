@@ -9,8 +9,8 @@ qswat_setup(
   overwrite = FALSE,
   dem_file = NULL,
   landuse_file = NULL,
-  soil_file = NULL,
   landuse_lookup = NULL,
+  soil_file = NULL,
   soil_lookup = NULL,
   outlet_file = NULL,
   ...
@@ -28,10 +28,10 @@ raster file (GeoTIFF or other GDAL-supported format).}
 
 \item{landuse_file}{Character. Path to the land use raster file.}
 
-\item{soil_file}{Character. Path to the soil raster file.}
-
 \item{landuse_lookup}{Character. Path to the land use lookup CSV file,
 mapping raster values to SWAT+ land use codes.}
+
+\item{soil_file}{Character. Path to the soil raster file.}
 
 \item{soil_lookup}{Character. Path to the soil lookup CSV file,
 mapping raster values to SWAT+ soil names.}
@@ -77,8 +77,8 @@ project <- qswat_setup(
   project_dir = tempdir(),
   dem_file = dem,
   landuse_file = landuse,
-  soil_file = soil,
   landuse_lookup = lu_lookup,
+  soil_file = soil,
   soil_lookup = soil_lookup
 )
 }

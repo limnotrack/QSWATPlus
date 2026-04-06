@@ -4,7 +4,12 @@
 \alias{qswat_write_database}
 \title{Write SWAT+ Project Database}
 \usage{
-qswat_write_database(project, db_file = NULL, overwrite = FALSE)
+qswat_write_database(
+  project,
+  db_file = NULL,
+  overwrite = FALSE,
+  usersoil = NULL
+)
 }
 \arguments{
 \item{project}{A \code{qswat_project} object with HRU data from
@@ -16,9 +21,27 @@ as \code{project.sqlite}.}
 
 \item{overwrite}{Logical. If TRUE, overwrite existing database.
 Default is FALSE.}
+
+\item{usersoil}{Character or NULL. Controls which soil physical
+properties dataset is used to populate the \code{global_usersoil} table
+in the project database. Mirrors the GUI option. One of:
+\describe{
+\item{\code{NULL}}{(default) Leave \code{global_usersoil} empty.}
+\item{\code{"FAO_usersoil"}}{Copy FAO global soil data (13 soil types)
+from the bundled \code{QSWATPlusProjHAWQS.sqlite} database.}
+\item{\code{"global_usersoil"}}{Copy the full global soil dataset
+(thousands of soil types) from the bundled
+\code{QSWATPlusProjHAWQS.sqlite} database.}
+\item{file path}{Path to a CSV file containing soil parameters in
+the \code{global_usersoil} table format. The file must have at minimum
+a column named \code{SNAM} (soil name). See \code{\link[=qswat_read_usersoil]{qswat_read_usersoil()}}.}
+}
+Populating \code{global_usersoil} allows the SWAT+ Editor to resolve
+soil physical properties when generating SWAT+ input files.}
 }
 \value{
-The path to the created database file (invisibly).
+The \code{project} object, updated with the path to the created
+database.
 }
 \description{
 Writes the HRU, subbasin, and routing data to a SWAT+ project
@@ -39,6 +62,10 @@ slope class, area, and elevation}
 \item{gis_deep_aquifers}{Deep aquifer data}
 \item{gis_water}{Water body data}
 \item{gis_points}{Point source data}
+\item{global_usersoil}{Soil physical properties (populated when
+\code{usersoil} is specified)}
+\item{global_soils}{Soil name lookup (populated when \code{usersoil}
+is specified)}
 }
 
 The database format is compatible with the SWAT+ Editor for
@@ -46,7 +73,17 @@ further model parameterization.
 }
 \examples{
 \dontrun{
+# Default: no soil physical properties
 db_path <- qswat_write_database(project)
+
+# Use FAO global soil data
+db_path <- qswat_write_database(project, usersoil = "FAO_usersoil")
+
+# Use full global soil dataset
+db_path <- qswat_write_database(project, usersoil = "global_usersoil")
+
+# Use a custom CSV file
+db_path <- qswat_write_database(project, usersoil = "my_soils.csv")
 }
 
 }

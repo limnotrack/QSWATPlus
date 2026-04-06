@@ -11,9 +11,9 @@
 #' @param dem_file Character. Path to the DEM (Digital Elevation Model)
 #'   raster file (GeoTIFF or other GDAL-supported format).
 #' @param landuse_file Character. Path to the land use raster file.
-#' @param soil_file Character. Path to the soil raster file.
 #' @param landuse_lookup Character. Path to the land use lookup CSV file,
 #'   mapping raster values to SWAT+ land use codes.
+#' @param soil_file Character. Path to the soil raster file.
 #' @param soil_lookup Character. Path to the soil lookup CSV file,
 #'   mapping raster values to SWAT+ soil names.
 #' @param overwrite Logical. If TRUE, overwrite existing project files.
@@ -50,8 +50,8 @@
 #'   project_dir = tempdir(),
 #'   dem_file = dem,
 #'   landuse_file = landuse,
-#'   soil_file = soil,
 #'   landuse_lookup = lu_lookup,
+#'   soil_file = soil,
 #'   soil_lookup = soil_lookup
 #' )
 #' }
@@ -61,8 +61,8 @@ qswat_setup <- function(project_dir,
                         overwrite = FALSE,
                         dem_file = NULL,
                         landuse_file = NULL,
-                        soil_file = NULL,
                         landuse_lookup = NULL,
+                        soil_file = NULL,
                         soil_lookup = NULL,
                         outlet_file = NULL,
                         ...) {
@@ -149,8 +149,8 @@ qswat_setup <- function(project_dir,
     project_dir      = normalizePath(project_dir),
     dem_file         = dem_proj,
     landuse_file     = landuse_proj,
-    soil_file        = soil_proj,
     landuse_lookup   = lu_lkp_proj,
+    soil_file        = soil_proj,
     soil_lookup      = s_lkp_proj,
     outlet_file      = outlet_proj,
     crs              = dem_crs,
