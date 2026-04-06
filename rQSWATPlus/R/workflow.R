@@ -22,6 +22,11 @@
 #' @param n_processes Integer. Number of MPI processes. Default 1.
 #' @param quiet Logical. Suppress output. Default FALSE.
 #' @param db_file Character or NULL. Output database path.
+#' @param usersoil Character or NULL. Soil physical properties dataset to
+#'   use when writing the project database. Passed to [qswat_setup()] and
+#'   stored in the project object. Accepted values are the same as for
+#'   [qswat_setup()]: `"FAO_usersoil"`, `"global_usersoil"`, a CSV file
+#'   path, or `NULL` (default, leaves `global_usersoil` empty).
 #'
 #' @return A `qswat_project` object with all results.
 #'
@@ -65,7 +70,8 @@ qswat_run <- function(project_dir,
                       slope_threshold = 0,
                       n_processes = 1L,
                       quiet = FALSE,
-                      db_file = NULL) {
+                      db_file = NULL,
+                      usersoil = NULL) {
 
   # Step 1: Setup
   if (!quiet) message("=== Step 1/5: Setting up project ===")
@@ -77,6 +83,7 @@ qswat_run <- function(project_dir,
     landuse_lookup = landuse_lookup,
     soil_lookup = soil_lookup,
     outlet_file = outlet_file,
+    usersoil = usersoil,
     overwrite = TRUE
   )
 

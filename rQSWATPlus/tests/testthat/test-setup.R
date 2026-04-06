@@ -102,3 +102,27 @@ test_that("print.qswat_project works", {
   expect_true(any(grepl("QSWATPlus Project", output)))
   expect_true(any(grepl("DEM:", output)))
 })
+
+test_that("qswat_setup stores usersoil in project object", {
+  proj_dir <- file.path(tempdir(), "test_setup_usersoil")
+  on.exit(unlink(proj_dir, recursive = TRUE), add = TRUE)
+
+  # usersoil = NULL (default)
+  p_null <- qswat_setup(project_dir = proj_dir)
+  expect_null(p_null$usersoil)
+
+  # usersoil = "FAO_usersoil"
+  p_fao <- qswat_setup(project_dir = proj_dir, overwrite = TRUE,
+                        usersoil = "FAO_usersoil")
+  expect_equal(p_fao$usersoil, "FAO_usersoil")
+
+  # usersoil = "global_usersoil"
+  p_global <- qswat_setup(project_dir = proj_dir, overwrite = TRUE,
+                           usersoil = "global_usersoil")
+  expect_equal(p_global$usersoil, "global_usersoil")
+
+  # usersoil = arbitrary CSV path string (stored as-is, validated later)
+  p_csv <- qswat_setup(project_dir = proj_dir, overwrite = TRUE,
+                        usersoil = "/path/to/my_soils.csv")
+  expect_equal(p_csv$usersoil, "/path/to/my_soils.csv")
+})

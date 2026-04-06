@@ -18,6 +18,19 @@
 #'   mapping raster values to SWAT+ soil names.
 #' @param overwrite Logical. If TRUE, overwrite existing project files.
 #'   Default is FALSE.
+#' @param usersoil Character or NULL. Soil physical properties dataset to
+#'   use when writing the project database with [qswat_write_database()].
+#'   Stored in the project object and used automatically unless overridden
+#'   in [qswat_write_database()].  Accepted values:
+#'   \describe{
+#'     \item{`NULL`}{(default) Leave `global_usersoil` empty.}
+#'     \item{`"FAO_usersoil"`}{Use FAO global soil data from the bundled
+#'       `QSWATPlusProjHAWQS.sqlite` database.}
+#'     \item{`"global_usersoil"`}{Use the full global soil dataset from
+#'       the bundled `QSWATPlusProjHAWQS.sqlite` database.}
+#'     \item{file path}{Path to a CSV file in `global_usersoil` format.
+#'       See [qswat_read_usersoil()].}
+#'   }
 #' @param ... Additional arguments to include in the returned project
 #' object. This allows users to add custom metadata or file paths as needed.
 #'
@@ -46,13 +59,15 @@
 #' lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
 #' soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
 #'
+#' # Setup with FAO soil data applied at database-write time
 #' project <- qswat_setup(
 #'   project_dir = tempdir(),
 #'   dem_file = dem,
 #'   landuse_file = landuse,
 #'   landuse_lookup = lu_lookup,
 #'   soil_file = soil,
-#'   soil_lookup = soil_lookup
+#'   soil_lookup = soil_lookup,
+#'   usersoil = "FAO_usersoil"
 #' )
 #' }
 #'
@@ -65,6 +80,7 @@ qswat_setup <- function(project_dir,
                         soil_file = NULL,
                         soil_lookup = NULL,
                         outlet_file = NULL,
+                        usersoil = NULL,
                         ...) {
   
   # 1. Validate inputs only if they are provided
@@ -153,6 +169,7 @@ qswat_setup <- function(project_dir,
     soil_file        = soil_proj,
     soil_lookup      = s_lkp_proj,
     outlet_file      = outlet_proj,
+    usersoil         = usersoil,
     crs              = dem_crs,
     units            = units,
     cell_size        = res,

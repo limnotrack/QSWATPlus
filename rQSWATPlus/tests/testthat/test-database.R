@@ -612,3 +612,114 @@ test_that("usersoil = non-existent file path raises an error", {
   )
 })
 
+test_that("project$usersoil is used when no explicit usersoil arg given", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  proj_hawqs <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                             package = "rQSWATPlus")
+  skip_if(proj_hawqs == "", message = "QSWATPlusProjHAWQS.sqlite not available")
+
+  # Build a project object that has usersoil = "FAO_usersoil" stored in it
+  project <- .make_usersoil_project()
+  project$usersoil <- "FAO_usersoil"
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  # No explicit usersoil argument - should use project$usersoil
+  result <- qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+  expect_true(file.exists(db_file))
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_equal(us$n, 13L,
+               label = "project$usersoil='FAO_usersoil' loads 13 FAO rows")
+})
+
+test_that("explicit usersoil arg overrides project$usersoil", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  proj_hawqs <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                             package = "rQSWATPlus")
+  skip_if(proj_hawqs == "", message = "QSWATPlusProjHAWQS.sqlite not available")
+
+  # Project says FAO, but we override with global_usersoil at write time
+  project <- .make_usersoil_project()
+  project$usersoil <- "FAO_usersoil"
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  # Explicit "global_usersoil" overrides the project-level "FAO_usersoil"
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE,
+                        usersoil = "global_usersoil")
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_gt(us$n, 13L,
+            label = "explicit usersoil='global_usersoil' overrides FAO (>13 rows)")
+})
+
+test_that("qswat_setup with usersoil flows through qswat_write_database", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  proj_hawqs <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                             package = "rQSWATPlus")
+  skip_if(proj_hawqs == "", message = "QSWATPlusProjHAWQS.sqlite not available")
+
+  # Simulate what qswat_setup() produces (without DEM loading)
+  proj_dir <- tempfile("setup_flow_")
+  dir.create(proj_dir)
+  on.exit(unlink(proj_dir, recursive = TRUE), add = TRUE)
+
+  project <- qswat_setup(project_dir = proj_dir, usersoil = "FAO_usersoil")
+  expect_equal(project$usersoil, "FAO_usersoil")
+
+  # Attach mock HRU/basin data so qswat_write_database() is happy
+  project$hru_data <- data.frame(
+    hru_id = 1:2, subbasin = c(1L, 2L),
+    landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+    slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+    area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+    mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+  )
+  project$basin_data <- data.frame(
+    subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+    mean_elevation = c(500, 600), min_elevation = c(490, 580),
+    max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+    n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+    stringsAsFactors = FALSE
+  )
+  project$slope_classes <- qswat_create_slope_classes()
+  project$stream_topology <- data.frame(
+    LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+    WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+    Length = c(1000, 500), stringsAsFactors = FALSE
+  )
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  result <- qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_equal(us$n, 13L,
+               label = "usersoil set in qswat_setup flows to database write")
+})
+

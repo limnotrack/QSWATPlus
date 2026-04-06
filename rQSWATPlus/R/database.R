@@ -13,9 +13,13 @@
 #'   Default is FALSE.
 #' @param usersoil Character or NULL. Controls which soil physical
 #'   properties dataset is used to populate the `global_usersoil` table
-#'   in the project database. Mirrors the GUI option. One of:
+#'   in the project database. Mirrors the GUI option. When `NULL`
+#'   (default), the value stored in `project$usersoil` (set via
+#'   [qswat_setup()]) is used; an explicit value here overrides it.
+#'   Accepted values:
 #'   \describe{
-#'     \item{`NULL`}{(default) Leave `global_usersoil` empty.}
+#'     \item{`NULL`}{Use `project$usersoil`, or leave `global_usersoil`
+#'       empty if that is also NULL.}
 #'     \item{`"FAO_usersoil"`}{Copy FAO global soil data (13 soil types)
 #'       from the bundled `QSWATPlusProjHAWQS.sqlite` database.}
 #'     \item{`"global_usersoil"`}{Copy the full global soil dataset
@@ -59,10 +63,11 @@
 #' # Default: no soil physical properties
 #' db_path <- qswat_write_database(project)
 #'
-#' # Use FAO global soil data
-#' db_path <- qswat_write_database(project, usersoil = "FAO_usersoil")
+#' # Set usersoil in qswat_setup() so it applies automatically
+#' project <- qswat_setup(..., usersoil = "FAO_usersoil")
+#' db_path <- qswat_write_database(project)   # uses FAO_usersoil
 #'
-#' # Use full global soil dataset
+#' # Override the project-level setting at write time
 #' db_path <- qswat_write_database(project, usersoil = "global_usersoil")
 #'
 #' # Use a custom CSV file
@@ -141,9 +146,11 @@ qswat_write_database <- function(project,
   # Ensure all required tables exist with sensible defaults
   ensure_write_tables(con)
 
-  # Populate soil physical properties (usersoil option)
-  if (!is.null(usersoil)) {
-    .populate_usersoil(con, usersoil)
+  # Populate soil physical properties:
+  # explicit argument takes precedence, otherwise use project-level setting
+  effective_usersoil <- if (!is.null(usersoil)) usersoil else project$usersoil
+  if (!is.null(effective_usersoil)) {
+    .populate_usersoil(con, effective_usersoil)
   }
 
   message("Database written to: ", db_file)
