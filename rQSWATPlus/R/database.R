@@ -11,8 +11,25 @@
 #'   as `project.sqlite`.
 #' @param overwrite Logical. If TRUE, overwrite existing database.
 #'   Default is FALSE.
+#' @param usersoil Character or NULL. Controls which soil physical
+#'   properties dataset is used to populate the `global_usersoil` table
+#'   in the project database. Mirrors the GUI option. One of:
+#'   \describe{
+#'     \item{`NULL`}{(default) Leave `global_usersoil` empty.}
+#'     \item{`"FAO_usersoil"`}{Copy FAO global soil data (13 soil types)
+#'       from the bundled `QSWATPlusProjHAWQS.sqlite` database.}
+#'     \item{`"global_usersoil"`}{Copy the full global soil dataset
+#'       (4932 soil types) from the bundled `QSWATPlusProjHAWQS.sqlite`
+#'       database.}
+#'     \item{file path}{Path to a CSV file containing soil parameters in
+#'       the `global_usersoil` table format. The file must have at minimum
+#'       a column named `SNAM` (soil name). See [qswat_read_usersoil()].}
+#'   }
+#'   Populating `global_usersoil` allows the SWAT+ Editor to resolve
+#'   soil physical properties when generating SWAT+ input files.
 #'
-#' @return The path to the created database file (invisibly).
+#' @return The `project` object, updated with the path to the created
+#'   database.
 #'
 #' @details
 #' Creates a SQLite database with the following tables:
@@ -28,6 +45,10 @@
 #'   \item{gis_deep_aquifers}{Deep aquifer data}
 #'   \item{gis_water}{Water body data}
 #'   \item{gis_points}{Point source data}
+#'   \item{global_usersoil}{Soil physical properties (populated when
+#'     `usersoil` is specified)}
+#'   \item{global_soils}{Soil name lookup (populated when `usersoil`
+#'     is specified)}
 #' }
 #'
 #' The database format is compatible with the SWAT+ Editor for
@@ -35,13 +56,24 @@
 #'
 #' @examples
 #' \dontrun{
+#' # Default: no soil physical properties
 #' db_path <- qswat_write_database(project)
+#'
+#' # Use FAO global soil data
+#' db_path <- qswat_write_database(project, usersoil = "FAO_usersoil")
+#'
+#' # Use full global soil dataset
+#' db_path <- qswat_write_database(project, usersoil = "global_usersoil")
+#'
+#' # Use a custom CSV file
+#' db_path <- qswat_write_database(project, usersoil = "my_soils.csv")
 #' }
 #'
 #' @export
 qswat_write_database <- function(project,
                                   db_file = NULL,
-                                  overwrite = FALSE) {
+                                  overwrite = FALSE,
+                                  usersoil = NULL) {
 
   if (!inherits(project, "qswat_project")) {
     stop("'project' must be a qswat_project object.", call. = FALSE)
@@ -108,6 +140,11 @@ qswat_write_database <- function(project,
   
   # Ensure all required tables exist with sensible defaults
   ensure_write_tables(con)
+
+  # Populate soil physical properties (usersoil option)
+  if (!is.null(usersoil)) {
+    .populate_usersoil(con, usersoil)
+  }
 
   message("Database written to: ", db_file)
   project$db_file <- db_file
@@ -953,7 +990,133 @@ qswat_write_database <- function(project,
 }
 
 
-#' Copy Reference Databases to Project Folder
+#' Populate global_usersoil and global_soils from a usersoil source
+#'
+#' Loads soil physical properties into the \code{global_usersoil} table and
+#' corresponding soil names into \code{global_soils}.  The source can be
+#' one of the built-in datasets bundled with the package, or a user-supplied
+#' CSV file.
+#'
+#' @param con  DBI connection to the (already created) project database.
+#' @param usersoil  One of \code{"FAO_usersoil"}, \code{"global_usersoil"},
+#'   or a file path to a CSV.  Validated before use.
+#' @return Invisible \code{NULL}.
+#' @noRd
+.populate_usersoil <- function(con, usersoil) {
+  if (is.null(usersoil)) return(invisible(NULL))
+
+  if (!is.character(usersoil) || length(usersoil) != 1L) {
+    stop(
+      "'usersoil' must be a single string: ",
+      "'FAO_usersoil', 'global_usersoil', or a CSV file path.",
+      call. = FALSE
+    )
+  }
+
+  builtin_opts <- c("FAO_usersoil", "global_usersoil")
+
+  if (usersoil %in% builtin_opts) {
+    # ----------------------------------------------------------------
+    # Load from the bundled QSWATPlusProjHAWQS database
+    # ----------------------------------------------------------------
+    proj_hawqs_db <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                                 package = "rQSWATPlus")
+    if (!nzchar(proj_hawqs_db) || !file.exists(proj_hawqs_db)) {
+      warning(
+        "QSWATPlusProjHAWQS.sqlite not found; cannot populate usersoil.",
+        call. = FALSE
+      )
+      return(invisible(NULL))
+    }
+
+    # Companion global_soils / FAO_soils table
+    soils_tbl <- if (usersoil == "FAO_usersoil") "FAO_soils" else "global_soils"
+
+    DBI::dbExecute(con, paste0(
+      "ATTACH DATABASE '", proj_hawqs_db, "' AS proj_hawqs_us"))
+    on.exit(tryCatch(
+      DBI::dbExecute(con, "DETACH DATABASE proj_hawqs_us"),
+      error = function(e) NULL
+    ), add = TRUE)
+
+    # Clear and repopulate global_usersoil
+    DBI::dbExecute(con, "DELETE FROM main.global_usersoil")
+    DBI::dbExecute(con, paste0(
+      "INSERT INTO main.global_usersoil ",
+      "SELECT * FROM proj_hawqs_us.[", usersoil, "]"
+    ))
+    n_us <- .safe_table_count(con, "global_usersoil")
+    message("  Loaded ", n_us, " rows into global_usersoil from '", usersoil, "'")
+
+    # Populate global_soils
+    DBI::dbExecute(con, "DELETE FROM main.global_soils")
+    DBI::dbExecute(con, paste0(
+      "INSERT INTO main.global_soils ",
+      "SELECT * FROM proj_hawqs_us.[", soils_tbl, "]"
+    ))
+    n_gs <- .safe_table_count(con, "global_soils")
+    message("  Loaded ", n_gs, " rows into global_soils from '", soils_tbl, "'")
+
+    DBI::dbExecute(con, "DETACH DATABASE proj_hawqs_us")
+
+  } else {
+    # ----------------------------------------------------------------
+    # Load from a user-supplied CSV file
+    # ----------------------------------------------------------------
+    if (!file.exists(usersoil)) {
+      stop("usersoil file not found: ", usersoil, call. = FALSE)
+    }
+
+    df <- utils::read.csv(usersoil, stringsAsFactors = FALSE,
+                          check.names = FALSE)
+    names(df) <- toupper(names(df))   # normalise to uppercase
+
+    if (!"SNAM" %in% names(df)) {
+      stop(
+        "usersoil CSV '", basename(usersoil),
+        "' must contain an 'SNAM' column with soil names.",
+        call. = FALSE
+      )
+    }
+
+    # Keep only columns that exist in the global_usersoil table
+    expected_cols <- DBI::dbListFields(con, "global_usersoil")
+    valid_cols    <- intersect(names(df), expected_cols)
+    df            <- df[, valid_cols, drop = FALSE]
+
+    # Remove rows with missing soil names
+    df <- df[!is.na(df$SNAM) & nzchar(df$SNAM), , drop = FALSE]
+    if (nrow(df) == 0L) {
+      warning("No valid rows in usersoil CSV; global_usersoil not populated.",
+              call. = FALSE)
+      return(invisible(NULL))
+    }
+
+    DBI::dbExecute(con, "DELETE FROM main.global_usersoil")
+    DBI::dbWriteTable(con, "global_usersoil", df,
+                      append = TRUE, row.names = FALSE)
+    n_us <- .safe_table_count(con, "global_usersoil")
+    message("  Loaded ", n_us, " rows into global_usersoil from CSV: ",
+            basename(usersoil))
+
+    # Populate global_soils from unique SNAM values in the CSV
+    snames <- unique(df$SNAM)
+    soil_df <- data.frame(
+      SOIL_ID = seq_along(snames),
+      SNAM    = snames,
+      stringsAsFactors = FALSE
+    )
+    DBI::dbExecute(con, "DELETE FROM main.global_soils")
+    DBI::dbWriteTable(con, "global_soils", soil_df,
+                      append = TRUE, row.names = FALSE)
+    message("  Loaded ", nrow(soil_df), " rows into global_soils from CSV")
+  }
+
+  invisible(NULL)
+}
+
+
+
 #'
 #' Copies the bundled reference databases to the project folder:
 #' \itemize{

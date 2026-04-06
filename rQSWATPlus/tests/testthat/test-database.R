@@ -385,3 +385,230 @@ test_that("WSNO=0 outlet stream is excluded from channels and routing", {
     )
   )
 })
+
+
+# ---- usersoil tests ----
+
+# Shared minimal project fixture used by all usersoil tests
+.make_usersoil_project <- function() {
+  project_dir <- tempfile("usersoil_")
+  dir.create(project_dir)
+  structure(list(
+    project_dir  = project_dir,
+    hru_data     = data.frame(
+      hru_id        = 1:2,
+      subbasin      = c(1L, 2L),
+      landuse       = c("AGRL", "FRSD"),
+      soil          = c("TX047", "TX236"),
+      slope_class   = c(1L, 1L),
+      cell_count    = c(100L, 200L),
+      area_ha       = c(10.0, 20.0),
+      mean_elevation = c(500, 600),
+      mean_slope    = c(3.0, 8.0),
+      stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin       = c(1L, 2L),
+      area_ha        = c(10.0, 20.0),
+      mean_elevation = c(500, 600),
+      min_elevation  = c(490, 580),
+      max_elevation  = c(510, 620),
+      mean_slope     = c(3.0, 8.0),
+      n_hrus         = c(1L, 1L),
+      n_landuses     = c(1L, 1L),
+      n_soils        = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes  = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+}
+
+test_that("usersoil = 'FAO_usersoil' populates global_usersoil from FAO data", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  proj_hawqs <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                             package = "rQSWATPlus")
+  skip_if(proj_hawqs == "", message = "QSWATPlusProjHAWQS.sqlite not available")
+
+  project  <- .make_usersoil_project()
+  db_file  <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  result <- qswat_write_database(project, db_file = db_file,
+                                  overwrite = TRUE,
+                                  usersoil = "FAO_usersoil")
+  expect_true(file.exists(db_file))
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_gt(us$n, 0L, label = "global_usersoil has rows after FAO_usersoil load")
+
+  # FAO dataset has 13 soil types
+  expect_equal(us$n, 13L)
+
+  gs <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_soils")
+  expect_gt(gs$n, 0L, label = "global_soils populated alongside global_usersoil")
+
+  # SNAM values should be present
+  snams <- DBI::dbGetQuery(con, "SELECT SNAM FROM global_usersoil")$SNAM
+  expect_true(all(nzchar(snams)))
+})
+
+test_that("usersoil = 'global_usersoil' populates global_usersoil with full dataset", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  proj_hawqs <- system.file("extdata", "QSWATPlusProjHAWQS.sqlite",
+                             package = "rQSWATPlus")
+  skip_if(proj_hawqs == "", message = "QSWATPlusProjHAWQS.sqlite not available")
+
+  project <- .make_usersoil_project()
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  result <- qswat_write_database(project, db_file = db_file,
+                                  overwrite = TRUE,
+                                  usersoil = "global_usersoil")
+  expect_true(file.exists(db_file))
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_gt(us$n, 0L)
+
+  # global dataset is much larger than FAO
+  fao_n <- 13L
+  expect_gt(us$n, fao_n, label = "global_usersoil > FAO count")
+
+  gs <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_soils")
+  expect_gt(gs$n, 0L)
+})
+
+test_that("usersoil = CSV path populates global_usersoil from user file", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  # Write a minimal usersoil CSV with 3 soil types
+  csv_file <- tempfile(fileext = ".csv")
+  usersoil_df <- data.frame(
+    SNAM       = c("MySoilA", "MySoilB", "MySoilC"),
+    NLAYERS    = c(2L, 3L, 1L),
+    HYDGRP     = c("B", "C", "A"),
+    SOL_ZMX    = c(1000, 1500, 500),
+    ANION_EXCL = c(0.5, 0.5, 0.5),
+    SOL_CRK    = c(0.5, 0.5, 0.5),
+    SOL_Z1     = c(300, 200, 500),
+    SOL_BD1    = c(1.4, 1.5, 1.3),
+    SOL_AWC1   = c(0.15, 0.12, 0.18),
+    SOL_K1     = c(8.0, 5.0, 12.0),
+    SOL_CBN1   = c(1.5, 2.0, 1.0),
+    CLAY1      = c(25, 35, 15),
+    SILT1      = c(30, 25, 20),
+    SAND1      = c(45, 40, 65),
+    stringsAsFactors = FALSE
+  )
+  utils::write.csv(usersoil_df, csv_file, row.names = FALSE)
+  on.exit(unlink(csv_file), add = TRUE)
+
+  project <- .make_usersoil_project()
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  result <- qswat_write_database(project, db_file = db_file,
+                                  overwrite = TRUE,
+                                  usersoil = csv_file)
+  expect_true(file.exists(db_file))
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  us <- DBI::dbGetQuery(con, "SELECT * FROM global_usersoil")
+  expect_equal(nrow(us), 3L)
+  expect_true("SNAM" %in% names(us))
+  expect_setequal(us$SNAM, c("MySoilA", "MySoilB", "MySoilC"))
+  expect_equal(us$NLAYERS, c(2, 3, 1))
+
+  gs <- DBI::dbGetQuery(con, "SELECT * FROM global_soils")
+  expect_equal(nrow(gs), 3L)
+  expect_setequal(gs$SNAM, c("MySoilA", "MySoilB", "MySoilC"))
+})
+
+test_that("usersoil = NULL leaves global_usersoil empty (default behaviour)", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  project <- .make_usersoil_project()
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_equal(us$n, 0L, label = "global_usersoil empty when usersoil = NULL")
+})
+
+test_that("usersoil CSV with missing SNAM column raises an error", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  bad_csv <- tempfile(fileext = ".csv")
+  utils::write.csv(data.frame(SoilName = "X", SOL_Z1 = 300), bad_csv,
+                   row.names = FALSE)
+  on.exit(unlink(bad_csv), add = TRUE)
+
+  project <- .make_usersoil_project()
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  expect_error(
+    qswat_write_database(project, db_file = db_file, overwrite = TRUE,
+                          usersoil = bad_csv),
+    "SNAM"
+  )
+})
+
+test_that("usersoil = non-existent file path raises an error", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  project <- .make_usersoil_project()
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit({
+    unlink(db_file)
+    unlink(project$project_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  expect_error(
+    qswat_write_database(project, db_file = db_file, overwrite = TRUE,
+                          usersoil = "/nonexistent/path/soils.csv"),
+    "not found"
+  )
+})
+

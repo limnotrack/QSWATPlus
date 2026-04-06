@@ -68,3 +68,50 @@ test_that("qswat_create_slope_classes validates input", {
   expect_error(qswat_create_slope_classes(c(0, 9999), labels = c("a", "b")),
                "Number of labels")
 })
+
+test_that("qswat_read_usersoil reads valid CSV and normalises column names", {
+  csv_file <- tempfile(fileext = ".csv")
+  on.exit(unlink(csv_file), add = TRUE)
+
+  utils::write.csv(data.frame(
+    snam    = c("MySoil1", "MySoil2"),
+    nlayers = c(2L, 3L),
+    hydgrp  = c("B", "C"),
+    sol_zmx = c(1000, 1500)
+  ), csv_file, row.names = FALSE)
+
+  result <- qswat_read_usersoil(csv_file)
+
+  expect_s3_class(result, "data.frame")
+  expect_equal(nrow(result), 2L)
+  # Column names should be uppercase
+  expect_true("SNAM" %in% names(result))
+  expect_true("NLAYERS" %in% names(result))
+  expect_true("HYDGRP" %in% names(result))
+  expect_equal(result$SNAM, c("MySoil1", "MySoil2"))
+})
+
+test_that("qswat_read_usersoil errors on missing file", {
+  expect_error(qswat_read_usersoil("nonexistent_soils.csv"), "not found")
+})
+
+test_that("qswat_read_usersoil errors when SNAM column is absent", {
+  csv_file <- tempfile(fileext = ".csv")
+  on.exit(unlink(csv_file), add = TRUE)
+  utils::write.csv(data.frame(SoilName = "X", SOL_Z1 = 300), csv_file,
+                   row.names = FALSE)
+  expect_error(qswat_read_usersoil(csv_file), "SNAM")
+})
+
+test_that("qswat_read_usersoil drops rows with empty SNAM", {
+  csv_file <- tempfile(fileext = ".csv")
+  on.exit(unlink(csv_file), add = TRUE)
+  utils::write.csv(data.frame(
+    SNAM    = c("SoilA", "", NA, "SoilB"),
+    NLAYERS = c(2, 1, 1, 3)
+  ), csv_file, row.names = FALSE)
+
+  result <- qswat_read_usersoil(csv_file)
+  expect_equal(nrow(result), 2L)
+  expect_equal(result$SNAM, c("SoilA", "SoilB"))
+})

@@ -128,7 +128,86 @@ qswat_read_soil_lookup <- function(lookup_file,
 }
 
 
-#' Create Slope Classification Bands
+#' Read User Soil Data from CSV
+#'
+#' Reads a CSV file containing soil physical parameters in the SWAT+
+#' `global_usersoil` table format. The resulting data frame can be passed
+#' directly to [qswat_write_database()] via the `usersoil` argument to
+#' populate soil physical properties in the project database.
+#'
+#' @param csv_file Character. Path to the CSV file containing soil parameters.
+#'   Must have at minimum a column named `SNAM` (soil name). Additional
+#'   columns should match the `global_usersoil` table schema:
+#'   `NLAYERS`, `HYDGRP`, `SOL_ZMX`, `ANION_EXCL`, `SOL_CRK`, `TEXTURE`,
+#'   and for each layer \emph{n} = 1--10: `SOL_Zn`, `SOL_BDn`, `SOL_AWCn`,
+#'   `SOL_Kn`, `SOL_CBNn`, `CLAYn`, `SILTn`, `SANDn`, `ROCKn`,
+#'   `SOL_ALBn`, `USLE_Kn`, `SOL_ECn`.
+#'
+#' @return A data frame with column names normalised to uppercase, suitable
+#'   for passing to [qswat_write_database()] as the `usersoil` argument.
+#'   Rows with missing `SNAM` values are removed.
+#'
+#' @details
+#' Column names are converted to uppercase on reading so the data frame is
+#' compatible with the SWAT+ project database schema regardless of the case
+#' used in the CSV file.
+#'
+#' Instead of passing the data frame directly to \code{qswat_write_database},
+#' you can also pass the file path as a string; [qswat_write_database()] will
+#' call this function internally.
+#'
+#' @examples
+#' csv_file <- tempfile(fileext = ".csv")
+#' write.csv(data.frame(
+#'   SNAM       = c("MySoil1", "MySoil2"),
+#'   NLAYERS    = c(2L, 3L),
+#'   HYDGRP     = c("B", "C"),
+#'   SOL_ZMX    = c(1000, 1500),
+#'   ANION_EXCL = c(0.5, 0.5),
+#'   SOL_CRK    = c(0.5, 0.5),
+#'   SOL_Z1     = c(300, 200),
+#'   SOL_BD1    = c(1.4, 1.5)
+#' ), csv_file, row.names = FALSE)
+#'
+#' soil_data <- qswat_read_usersoil(csv_file)
+#' head(soil_data)
+#'
+#' @seealso [qswat_write_database()]
+#' @export
+qswat_read_usersoil <- function(csv_file) {
+  if (!file.exists(csv_file)) {
+    stop("CSV file not found: ", csv_file, call. = FALSE)
+  }
+
+  df <- utils::read.csv(csv_file, stringsAsFactors = FALSE, check.names = FALSE)
+
+  if (nrow(df) == 0L) {
+    stop("No data found in usersoil CSV file.", call. = FALSE)
+  }
+
+  names(df) <- toupper(names(df))
+
+  if (!"SNAM" %in% names(df)) {
+    stop(
+      "usersoil CSV must have an 'SNAM' column with soil names.",
+      call. = FALSE
+    )
+  }
+
+  df <- df[!is.na(df$SNAM) & nzchar(df$SNAM), , drop = FALSE]
+
+  if (nrow(df) == 0L) {
+    stop(
+      "No valid soil entries found (all SNAM values are missing or empty).",
+      call. = FALSE
+    )
+  }
+
+  return(df)
+}
+
+
+
 #'
 #' Defines slope percentage classes for HRU creation. Slope bands
 #' are used to further subdivide HRUs by terrain steepness.
