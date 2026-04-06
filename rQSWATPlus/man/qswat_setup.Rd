@@ -13,6 +13,7 @@ qswat_setup(
   soil_file = NULL,
   soil_lookup = NULL,
   outlet_file = NULL,
+  usersoil = NULL,
   ...
 )
 }
@@ -38,6 +39,20 @@ mapping raster values to SWAT+ soil names.}
 
 \item{outlet_file}{Character or NULL. Optional path to outlet point
 shapefile for watershed delineation.}
+
+\item{usersoil}{Character or NULL. Soil physical properties dataset to
+use when writing the project database with \code{\link[=qswat_write_database]{qswat_write_database()}}.
+Stored in the project object and used automatically unless overridden
+in \code{\link[=qswat_write_database]{qswat_write_database()}}.  Accepted values:
+\describe{
+\item{\code{NULL}}{(default) Leave \code{global_usersoil} empty.}
+\item{\code{"FAO_usersoil"}}{Use FAO global soil data from the bundled
+\code{QSWATPlusProjHAWQS.sqlite} database.}
+\item{\code{"global_usersoil"}}{Use the full global soil dataset from
+the bundled \code{QSWATPlusProjHAWQS.sqlite} database.}
+\item{file path}{Path to a CSV file in \code{global_usersoil} format.
+See \code{\link[=qswat_read_usersoil]{qswat_read_usersoil()}}.}
+}}
 
 \item{...}{Additional arguments to include in the returned project
 object. This allows users to add custom metadata or file paths as needed.}
@@ -73,13 +88,15 @@ soil <- system.file("extdata", "ravn_soil.tif", package = "rQSWATPlus")
 lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
 soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
 
+# Setup with FAO soil data applied at database-write time
 project <- qswat_setup(
   project_dir = tempdir(),
   dem_file = dem,
   landuse_file = landuse,
   landuse_lookup = lu_lookup,
   soil_file = soil,
-  soil_lookup = soil_lookup
+  soil_lookup = soil_lookup,
+  usersoil = "FAO_usersoil"
 )
 }
 

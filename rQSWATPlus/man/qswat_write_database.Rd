@@ -24,9 +24,13 @@ Default is FALSE.}
 
 \item{usersoil}{Character or NULL. Controls which soil physical
 properties dataset is used to populate the \code{global_usersoil} table
-in the project database. Mirrors the GUI option. One of:
+in the project database. Mirrors the GUI option. When \code{NULL}
+(default), the value stored in \code{project$usersoil} (set via
+\code{\link[=qswat_setup]{qswat_setup()}}) is used; an explicit value here overrides it.
+Accepted values:
 \describe{
-\item{\code{NULL}}{(default) Leave \code{global_usersoil} empty.}
+\item{\code{NULL}}{Use \code{project$usersoil}, or leave \code{global_usersoil}
+empty if that is also NULL.}
 \item{\code{"FAO_usersoil"}}{Copy FAO global soil data (13 soil types)
 from the bundled \code{QSWATPlusProjHAWQS.sqlite} database.}
 \item{\code{"global_usersoil"}}{Copy the full global soil dataset
@@ -76,10 +80,11 @@ further model parameterization.
 # Default: no soil physical properties
 db_path <- qswat_write_database(project)
 
-# Use FAO global soil data
-db_path <- qswat_write_database(project, usersoil = "FAO_usersoil")
+# Set usersoil in qswat_setup() so it applies automatically
+project <- qswat_setup(..., usersoil = "FAO_usersoil")
+db_path <- qswat_write_database(project)   # uses FAO_usersoil
 
-# Use full global soil dataset
+# Override the project-level setting at write time
 db_path <- qswat_write_database(project, usersoil = "global_usersoil")
 
 # Use a custom CSV file

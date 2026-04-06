@@ -20,7 +20,8 @@ qswat_run(
   slope_threshold = 0,
   n_processes = 1L,
   quiet = FALSE,
-  db_file = NULL
+  db_file = NULL,
+  usersoil = NULL
 )
 }
 \arguments{
@@ -57,6 +58,12 @@ percent. Default \code{c(0, 9999)} for a single class.}
 \item{quiet}{Logical. Suppress output. Default FALSE.}
 
 \item{db_file}{Character or NULL. Output database path.}
+
+\item{usersoil}{Character or NULL. Soil physical properties dataset to
+use when writing the project database. Passed to \code{\link[=qswat_setup]{qswat_setup()}} and
+stored in the project object. Accepted values are the same as for
+\code{\link[=qswat_setup]{qswat_setup()}}: \code{"FAO_usersoil"}, \code{"global_usersoil"}, a CSV file
+path, or \code{NULL} (default, leaves \code{global_usersoil} empty).}
 }
 \value{
 A \code{qswat_project} object with all results.
