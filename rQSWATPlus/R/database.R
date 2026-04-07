@@ -114,11 +114,14 @@ qswat_write_database <- function(project,
   # Write project configuration
   .write_project_config(con, project, db_file, ref_db_path)
 
+  # Compute subbasin centroids in WGS84 once; shared by all spatial tables
+  centroids <- .compute_subbasin_centroids_wgs84(project)
+
   # Write subbasin data
-  .write_subbasin_table(con, project$basin_data)
+  .write_subbasin_table(con, project$basin_data, centroids)
 
   # Write HRU data
-  .write_hru_table(con, project$hru_data, project$slope_classes)
+  .write_hru_table(con, project$hru_data, project$slope_classes, centroids)
 
   # Write routing topology
   .write_routing_table(con, project)
@@ -127,10 +130,10 @@ qswat_write_database <- function(project,
   .write_channel_table(con, project)
 
   # Write LSU data
-  .write_lsu_table(con, project)
+  .write_lsu_table(con, project, centroids)
 
   # Write aquifer data
-  .write_aquifer_table(con, project$basin_data)
+  .write_aquifer_table(con, project$basin_data, centroids)
 
   # Write water body data
   .write_water_table(con)
@@ -678,10 +681,84 @@ qswat_write_database <- function(project,
 }
 
 
+
+#' Compute Per-Subbasin Centroids in WGS84
+#'
+#' Groups raster cells by subbasin ID, computes the mean XY centre in the
+#' raster's native CRS, then reprojects to WGS84 (EPSG:4326).
+#' Returns NULL silently when no watershed raster is available.
+#' @noRd
+.compute_subbasin_centroids_wgs84 <- function(project) {
+  rast_obj <- NULL
+  if (!is.null(project$watershed_rast) &&
+      inherits(project$watershed_rast, "SpatRaster")) {
+    rast_obj <- project$watershed_rast
+  } else if (!is.null(project$watershed_file) &&
+             file.exists(project$watershed_file)) {
+    rast_obj <- tryCatch(terra::rast(project$watershed_file),
+                         error = function(e) NULL)
+  }
+  if (is.null(rast_obj)) return(NULL)
+
+  tryCatch({
+    vals <- terra::values(rast_obj, mat = FALSE)
+    valid <- !is.na(vals) & vals > 0
+    if (sum(valid) == 0L) return(NULL)
+
+    cell_ids <- which(valid)
+    coords   <- terra::xyFromCell(rast_obj, cell_ids)
+    sub_ids  <- as.integer(vals[cell_ids])
+
+    df <- data.frame(subbasin = sub_ids,
+                     x = coords[, 1],
+                     y = coords[, 2])
+
+    # Mean XY per subbasin in projected CRS
+    xmean <- tapply(df$x, df$subbasin, mean)
+    ymean <- tapply(df$y, df$subbasin, mean)
+    subs  <- as.integer(names(xmean))
+
+    pts <- sf::st_as_sf(
+      data.frame(subbasin = subs, x = as.numeric(xmean), y = as.numeric(ymean)),
+      coords = c("x", "y"),
+      crs    = sf::st_crs(terra::crs(rast_obj))
+    )
+    pts_wgs84 <- sf::st_transform(pts, crs = 4326)
+    xy_wgs84  <- sf::st_coordinates(pts_wgs84)
+
+    data.frame(subbasin = subs,
+               lat      = as.numeric(xy_wgs84[, "Y"]),
+               lon      = as.numeric(xy_wgs84[, "X"]))
+  }, error = function(e) {
+    message("Note: Could not compute subbasin centroids for lat/lon: ",
+            conditionMessage(e))
+    NULL
+  })
+}
+
+
+#' Look up lat/lon for a vector of subbasin IDs from the centroid table.
+#' Returns 0 for any subbasin not found in the table or when \code{centroids}
+#' is NULL.
+#' @noRd
+.lookup_latlon <- function(subbasin_ids, centroids) {
+  if (is.null(centroids)) {
+    return(list(lat = rep(0, length(subbasin_ids)),
+                lon = rep(0, length(subbasin_ids))))
+  }
+  idx <- match(subbasin_ids, centroids$subbasin)
+  lat <- ifelse(is.na(idx), 0, centroids$lat[idx])
+  lon <- ifelse(is.na(idx), 0, centroids$lon[idx])
+  list(lat = lat, lon = lon)
+}
+
+
 #' Write Subbasin Table
 #' @noRd
-.write_subbasin_table <- function(con, basin_data) {
+.write_subbasin_table <- function(con, basin_data, centroids = NULL) {
   if (is.null(basin_data) || nrow(basin_data) == 0) return(invisible())
+
+  ll <- .lookup_latlon(basin_data$subbasin, centroids)
 
   df <- data.frame(
     id = basin_data$subbasin,
@@ -689,8 +766,8 @@ qswat_write_database <- function(project,
     slo1 = basin_data$mean_slope,
     len1 = sqrt(basin_data$area_ha * 10000),
     sll = basin_data$mean_slope,
-    lat = 0,
-    lon = 0,
+    lat = ll$lat,
+    lon = ll$lon,
     elev = basin_data$mean_elevation,
     elevmin = basin_data$min_elevation,
     elevmax = basin_data$max_elevation,
@@ -704,7 +781,7 @@ qswat_write_database <- function(project,
 
 #' Write HRU Table
 #' @noRd
-.write_hru_table <- function(con, hru_data, slope_classes) {
+.write_hru_table <- function(con, hru_data, slope_classes, centroids = NULL) {
   if (is.null(hru_data) || nrow(hru_data) == 0) return(invisible())
 
   # Compute percentages
@@ -763,8 +840,8 @@ qswat_write_database <- function(project,
     slp = slp_label,
     arslp = round(hru_data$arslp, 4),
     slope = hru_data$mean_slope,
-    lat = 0,
-    lon = 0,
+    lat = .lookup_latlon(hru_data$subbasin, centroids)$lat,
+    lon = .lookup_latlon(hru_data$subbasin, centroids)$lon,
     elev = hru_data$mean_elevation,
     stringsAsFactors = FALSE
   )
@@ -951,10 +1028,11 @@ qswat_write_database <- function(project,
 
 #' Write LSU Table
 #' @noRd
-.write_lsu_table <- function(con, project) {
+.write_lsu_table <- function(con, project, centroids = NULL) {
   if (is.null(project$basin_data)) return(invisible())
 
   bd <- project$basin_data
+  ll <- .lookup_latlon(bd$subbasin, centroids)
 
   df <- data.frame(
     id = seq_len(nrow(bd)),
@@ -967,8 +1045,8 @@ qswat_write_database <- function(project,
     csl = bd$mean_slope,
     wid1 = 1.0,
     dep1 = 0.5,
-    lat = 0,
-    lon = 0,
+    lat = ll$lat,
+    lon = ll$lon,
     elev = bd$mean_elevation,
     stringsAsFactors = FALSE
   )
@@ -979,8 +1057,10 @@ qswat_write_database <- function(project,
 
 #' Write Aquifer Tables
 #' @noRd
-.write_aquifer_table <- function(con, basin_data) {
+.write_aquifer_table <- function(con, basin_data, centroids = NULL) {
   if (is.null(basin_data)) return(invisible())
+
+  ll <- .lookup_latlon(basin_data$subbasin, centroids)
 
   # One shallow aquifer per subbasin
   aq_df <- data.frame(
@@ -988,20 +1068,36 @@ qswat_write_database <- function(project,
     subbasin = basin_data$subbasin,
     deep_aquifer = 1L,
     area = basin_data$area_ha,
-    lat = 0,
-    lon = 0,
+    lat = ll$lat,
+    lon = ll$lon,
     elev = basin_data$mean_elevation,
     stringsAsFactors = FALSE
   )
   DBI::dbWriteTable(con, "gis_aquifers", aq_df,
                      append = TRUE, row.names = FALSE)
 
-  # One deep aquifer for whole watershed
+  # One deep aquifer for whole watershed: area-weighted centroid
+  if (!is.null(centroids) && nrow(centroids) > 0) {
+    idx      <- match(basin_data$subbasin, centroids$subbasin)
+    valid_i  <- which(!is.na(idx))
+    w_valid  <- basin_data$area_ha[valid_i]
+    w_total  <- sum(w_valid)
+    if (w_total > 0) {
+      lat_deep <- sum(centroids$lat[idx[valid_i]] * w_valid) / w_total
+      lon_deep <- sum(centroids$lon[idx[valid_i]] * w_valid) / w_total
+    } else {
+      lat_deep <- 0
+      lon_deep <- 0
+    }
+  } else {
+    lat_deep <- 0
+    lon_deep <- 0
+  }
   deep_df <- data.frame(
-    id = 1L,
+    id   = 1L,
     area = sum(basin_data$area_ha),
-    lat = 0,
-    lon = 0,
+    lat  = lat_deep,
+    lon  = lon_deep,
     elev = mean(basin_data$mean_elevation),
     stringsAsFactors = FALSE
   )
@@ -2675,4 +2771,72 @@ ensure_write_tables <- function(con) {
     id INTEGER PRIMARY KEY, name TEXT)")
   
   invisible(NULL)
+}
+
+
+#' Read GIS Tables from a SWAT+ Project Database
+#'
+#' Reads all \code{gis_*} tables from an existing SWAT+ project SQLite
+#' database and returns them as a named list of data frames.
+#'
+#' @param db_file Character.  Path to a SWAT+ project SQLite database (the
+#'   file written by [qswat_write_database()]).
+#'
+#' @return A named list.  Each element is a data frame corresponding to one
+#'   \code{gis_*} table found in the database.  If no GIS tables are present
+#'   an empty list is returned.
+#'
+#' @details
+#' The following tables are returned when they contain data (empty tables are
+#' still included as zero-row data frames):
+#' \itemize{
+#'   \item \code{gis_subbasins}
+#'   \item \code{gis_channels}
+#'   \item \code{gis_lsus}
+#'   \item \code{gis_hrus}
+#'   \item \code{gis_aquifers}
+#'   \item \code{gis_deep_aquifers}
+#'   \item \code{gis_water}
+#'   \item \code{gis_points}
+#'   \item \code{gis_routing}
+#'   \item \code{gis_elevationbands}
+#'   \item \code{gis_landexempt}
+#'   \item \code{gis_splithrus}
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' gis <- qswat_read_gis("my_project.sqlite")
+#' head(gis$gis_subbasins)
+#' head(gis$gis_channels)
+#' }
+#'
+#' @export
+qswat_read_gis <- function(db_file) {
+  if (!is.character(db_file) || length(db_file) != 1L) {
+    stop("'db_file' must be a single character string.", call. = FALSE)
+  }
+  if (!file.exists(db_file)) {
+    stop("Database file not found: ", db_file, call. = FALSE)
+  }
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  all_tables <- DBI::dbListTables(con)
+  gis_tables <- sort(all_tables[grepl("^gis_", all_tables)])
+
+  if (length(gis_tables) == 0L) {
+    message("No gis_* tables found in: ", db_file)
+    return(list())
+  }
+
+  result <- lapply(gis_tables, function(tbl) {
+    DBI::dbReadTable(con, tbl)
+  })
+  names(result) <- gis_tables
+
+  message("Read ", length(gis_tables), " GIS table(s): ",
+          paste(gis_tables, collapse = ", "))
+  result
 }
