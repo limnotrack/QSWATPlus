@@ -393,7 +393,8 @@ test_that("midlat and midlon are computed from streams_sf geometry", {
   skip_if_not_installed("RSQLite")
   skip_if_not_installed("DBI")
   skip_if_not_installed("sf")
-
+  dem        <- system.file("extdata", "ravn_dem.tif",     package = "rQSWATPlus")
+  
   db_file <- tempfile(fileext = ".sqlite")
   on.exit(unlink(db_file), add = TRUE)
 
@@ -412,6 +413,7 @@ test_that("midlat and midlon are computed from streams_sf geometry", {
   )
 
   project <- structure(list(
+    dem_file = dem,
     project_dir = tempdir(),
     hru_data = data.frame(
       hru_id = 1:2, subbasin = c(1L, 2L),
