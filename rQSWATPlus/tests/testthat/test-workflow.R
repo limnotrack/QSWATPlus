@@ -17,13 +17,14 @@ test_that("stepped workflow works", {
   lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
   soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
   outlet <- system.file("extdata", "ravn_outlet.shp", package = "rQSWATPlus")
+  usersoil <- system.file("extdata", "ravn_usersoil.csv", package = "rQSWATPlus")
 
   skip_if(dem == "", "Example data not available")
 
   project_dir <- file.path(tempdir(), "ravn_swatplus")
   on.exit(unlink(project_dir, recursive = TRUE), add = TRUE)
 
-  # Initialize the project
+  # Initialize the project with usersoil stored in the project object
   project <- qswat_setup(
     project_dir = project_dir,
     dem_file = dem,
@@ -31,7 +32,8 @@ test_that("stepped workflow works", {
     soil_file = soil,
     landuse_lookup = lu_lookup,
     soil_lookup = soil_lookup,
-    outlet_file = outlet
+    outlet_file = outlet,
+    usersoil = usersoil
   )
 
   project <- qswat_delineate(
@@ -60,8 +62,15 @@ test_that("stepped workflow works", {
     slope_threshold = 0
   )
 
+  # usersoil from project$usersoil is used automatically
   project <- qswat_write_database(project, overwrite = TRUE)
   expect_true(file.exists(project$db_file))
+
+  # Verify usersoil rows were written
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_gt(us$n, 0L, label = "global_usersoil populated in stepped workflow")
 })
 
 test_that("qswat_run works", {

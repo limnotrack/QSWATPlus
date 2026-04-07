@@ -57,6 +57,8 @@ test_that("HRU creation works with delineated project", {
                                  package = "rQSWATPlus")
   soil_lookup_file <- system.file("extdata", "ravn_soil.csv",
                                    package = "rQSWATPlus")
+  usersoil_file <- system.file("extdata", "ravn_usersoil.csv",
+                                package = "rQSWATPlus")
 
   skip_if(dem == "", message = "Example data not available")
 
@@ -69,7 +71,8 @@ test_that("HRU creation works with delineated project", {
     landuse_file = landuse,
     soil_file = soil,
     landuse_lookup = lu_lookup_file,
-    soil_lookup = soil_lookup_file
+    soil_lookup = soil_lookup_file,
+    usersoil = usersoil_file
   ) |> 
     qswat_delineate(threshold = 500, quiet = TRUE) |> 
     qswat_create_streams() |> 
@@ -85,4 +88,11 @@ test_that("HRU creation works with delineated project", {
 
   expect_false(is.null(project$basin_data))
   expect_true(nrow(project$basin_data) > 0)
+
+  # Verify usersoil was stored and written to the database
+  expect_equal(project$usersoil, usersoil_file)
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  us <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM global_usersoil")
+  expect_gt(us$n, 0L, label = "global_usersoil populated from ravn_usersoil.csv")
 })
