@@ -1078,15 +1078,17 @@ qswat_write_database <- function(project,
 
   # One deep aquifer for whole watershed: area-weighted centroid
   if (!is.null(centroids) && nrow(centroids) > 0) {
-    idx <- match(basin_data$subbasin, centroids$subbasin)
-    w   <- basin_data$area_ha
-    w[is.na(idx)] <- 0
-    lat_deep <- if (sum(w) > 0)
-      sum(centroids$lat[idx[!is.na(idx)]] * w[!is.na(idx)]) / sum(w[!is.na(idx)])
-    else 0
-    lon_deep <- if (sum(w) > 0)
-      sum(centroids$lon[idx[!is.na(idx)]] * w[!is.na(idx)]) / sum(w[!is.na(idx)])
-    else 0
+    idx      <- match(basin_data$subbasin, centroids$subbasin)
+    valid_i  <- which(!is.na(idx))
+    w_valid  <- basin_data$area_ha[valid_i]
+    w_total  <- sum(w_valid)
+    if (w_total > 0) {
+      lat_deep <- sum(centroids$lat[idx[valid_i]] * w_valid) / w_total
+      lon_deep <- sum(centroids$lon[idx[valid_i]] * w_valid) / w_total
+    } else {
+      lat_deep <- 0
+      lon_deep <- 0
+    }
   } else {
     lat_deep <- 0
     lon_deep <- 0

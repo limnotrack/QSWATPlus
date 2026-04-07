@@ -538,12 +538,8 @@ test_that("qswat_read_gis returns a list of gis_* tables", {
   db_file <- tempfile(fileext = ".sqlite")
   on.exit(unlink(db_file), add = TRUE)
 
-  project_dir <- tempfile("readgis_")
-  dir.create(project_dir)
-  on.exit(unlink(project_dir, recursive = TRUE), add = TRUE)
-
   project <- structure(list(
-    project_dir = project_dir,
+    project_dir = tempdir(),
     hru_data = data.frame(
       hru_id = 1:2, subbasin = c(1L, 2L),
       landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
