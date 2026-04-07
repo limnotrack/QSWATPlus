@@ -164,8 +164,8 @@ test_that("full database write works with mock data", {
 
   routing <- DBI::dbGetQuery(con, "SELECT * FROM gis_routing")
   expect_true(nrow(routing) > 0)
-  expect_true("hyd_type" %in% names(routing))
-  expect_true(all(routing$hyd_type == "tot"))
+  expect_true("hyd_typ" %in% names(routing))
+  expect_true(all(routing$hyd_typ == "tot"))
 
   channels <- DBI::dbGetQuery(con, "SELECT * FROM gis_channels")
   expect_true(nrow(channels) > 0)
