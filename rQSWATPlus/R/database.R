@@ -900,9 +900,12 @@ qswat_write_database <- function(project,
   if (!is.null(project$streams_sf) && inherits(project$streams_sf, "sf")) {
     tryCatch({
       streams_valid <- project$streams_sf[valid, ]
-      # Sample the midpoint (50%) along each linestring
+      # Sample the midpoint (50%) along each linestring.
+      # st_line_sample may return sfc_MULTIPOINT (one point per feature);
+      # cast to POINT to guarantee a single row per feature from st_coordinates.
       geom_valid <- sf::st_geometry(streams_valid)
       mids <- sf::st_line_sample(geom_valid, sample = 0.5)
+      mids <- sf::st_cast(mids, "POINT")
       # Preserve CRS for the transform
       mids <- sf::st_set_crs(mids, sf::st_crs(streams_valid))
       # Reproject to WGS84 for lat/lon output

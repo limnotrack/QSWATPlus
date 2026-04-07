@@ -448,7 +448,7 @@ test_that("midlat and midlon are computed from streams_sf geometry", {
   expect_true(all(channels$midlat != 0), label = "midlat is non-zero")
   expect_true(all(channels$midlon != 0), label = "midlon is non-zero")
 
-  # Both midlatitudes should be positive (northern hemisphere, ~45 N for UTM32)
+  # Both midlatitudes should be positive (northern hemisphere, UTM zone 32N ~45 N)
   expect_true(all(channels$midlat > 0), label = "midlat is positive (N hemisphere)")
 
   # midlon values should be within a plausible range for UTM zone 32 (~6-18 E)
