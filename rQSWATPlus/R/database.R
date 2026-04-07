@@ -156,6 +156,10 @@ qswat_write_database <- function(project,
     .populate_usersoil(con, effective_usersoil)
   }
 
+  # Populate soils_sol and soils_sol_layer from global_usersoil
+  # (usersoil -> global_usersoil -> soils_sol, matching Python plugin flow)
+  .write_soils_sol_table(con, project$hru_data)
+
   message("Database written to: ", db_file)
   project$db_file <- db_file
   # invisible(db_file)
@@ -1119,6 +1123,134 @@ qswat_write_database <- function(project,
 .write_point_table <- function(con) {
   # Empty table - populated by user or SWAT+ Editor
   invisible()
+}
+
+
+#' Populate soils_sol and soils_sol_layer from global_usersoil
+#'
+#' Mirrors the Python \code{writeSoilsTable()} / \code{writeUsedSoilRow()}
+#' logic: reads only the soil names actually used by HRUs from the
+#' \code{global_usersoil} table (populated earlier by
+#' \code{.populate_usersoil()}), then writes summary rows to
+#' \code{soils_sol} and per-layer rows to \code{soils_sol_layer}.
+#'
+#' The data flow matches the Python plugin:
+#' usersoil -> global_usersoil -> soils_sol / soils_sol_layer
+#'
+#' @param con  DBI connection to the project database.
+#' @param hru_data  Data frame of HRU data (must contain a \code{soil} column).
+#' @return Invisible \code{NULL}.
+#' @noRd
+.write_soils_sol_table <- function(con, hru_data) {
+  if (is.null(hru_data)) return(invisible(NULL))
+
+  # Check global_usersoil exists and has data
+  tables <- DBI::dbListTables(con)
+  if (!"global_usersoil" %in% tables) return(invisible(NULL))
+  n_us <- .safe_table_count(con, "global_usersoil")
+  if (n_us == 0L) return(invisible(NULL))
+
+  # Get unique soil names used in HRUs
+  used_soils <- unique(hru_data$soil)
+  if (length(used_soils) == 0L) return(invisible(NULL))
+
+  # Read matching rows from global_usersoil
+  placeholders <- paste(rep("?", length(used_soils)), collapse = ", ")
+  sql <- paste0("SELECT * FROM global_usersoil WHERE SNAM IN (",
+                 placeholders, ")")
+  us_data <- DBI::dbGetQuery(con, sql, params = as.list(used_soils))
+
+  if (nrow(us_data) == 0L) {
+    message("  Warning: No matching soils found in global_usersoil ",
+            "for HRU soil names.")
+    return(invisible(NULL))
+  }
+
+  # Clear existing data
+  DBI::dbExecute(con, "DELETE FROM soils_sol")
+  DBI::dbExecute(con, "DELETE FROM soils_sol_layer")
+
+  # Build soils_sol and soils_sol_layer from the wide-format usersoil data
+  # global_usersoil has 152 columns:
+  #   OBJECTID, MUID, SEQN, SNAM, S5ID, CMPPCT, NLAYERS, HYDGRP, SOL_ZMX,
+  #   ANION_EXCL, SOL_CRK, TEXTURE,
+  #   SOL_Z1..SOL_EC1 (12 cols x 10 layers),
+  #   SOL_CAL1..SOL_CAL10, SOL_PH1..SOL_PH10
+  sol_rows <- list()
+  layer_rows <- list()
+  lid <- 0L
+
+  for (i in seq_len(nrow(us_data))) {
+    row <- us_data[i, ]
+    sid <- i
+
+    # soils_sol row
+    sol_rows[[i]] <- data.frame(
+      id         = sid,
+      name       = as.character(row$SNAM),
+      hyd_grp    = as.character(row$HYDGRP),
+      dp_tot     = as.numeric(row$SOL_ZMX),
+      anion_excl = as.numeric(row$ANION_EXCL),
+      perc_crk   = as.numeric(row$SOL_CRK),
+      texture    = if ("TEXTURE" %in% names(row)) as.character(row$TEXTURE) else NA_character_,
+      description = NA_character_,
+      stringsAsFactors = FALSE
+    )
+
+    # Number of layers
+    nlayers <- as.integer(row$NLAYERS)
+    if (is.na(nlayers) || nlayers < 1L) nlayers <- 1L
+    if (nlayers > 10L) nlayers <- 10L
+
+    # Layer property column prefixes (wide format)
+    layer_props <- c("SOL_Z", "SOL_BD", "SOL_AWC", "SOL_K",
+                     "SOL_CBN", "CLAY", "SILT", "SAND",
+                     "ROCK", "SOL_ALB", "USLE_K", "SOL_EC")
+
+    for (j in seq_len(nlayers)) {
+      lid <- lid + 1L
+
+      col_names <- paste0(layer_props, j)
+      cal_col <- paste0("SOL_CAL", j)
+      ph_col  <- paste0("SOL_PH", j)
+
+      get_val <- function(cn) {
+        if (cn %in% names(row)) as.numeric(row[[cn]]) else 0
+      }
+
+      layer_rows[[lid]] <- data.frame(
+        id        = lid,
+        soil_id   = sid,
+        layer_num = j,
+        dp        = get_val(col_names[1]),
+        bd        = get_val(col_names[2]),
+        awc       = get_val(col_names[3]),
+        soil_k    = get_val(col_names[4]),
+        carbon    = get_val(col_names[5]),
+        clay      = get_val(col_names[6]),
+        silt      = get_val(col_names[7]),
+        sand      = get_val(col_names[8]),
+        rock      = get_val(col_names[9]),
+        alb       = get_val(col_names[10]),
+        usle_k    = get_val(col_names[11]),
+        ec        = get_val(col_names[12]),
+        caco3     = if (cal_col %in% names(row)) as.numeric(row[[cal_col]]) else NA_real_,
+        ph        = if (ph_col %in% names(row)) as.numeric(row[[ph_col]]) else NA_real_,
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  sol_df <- do.call(rbind, sol_rows)
+  layer_df <- do.call(rbind, layer_rows)
+
+  DBI::dbWriteTable(con, "soils_sol", sol_df, append = TRUE, row.names = FALSE)
+  DBI::dbWriteTable(con, "soils_sol_layer", layer_df, append = TRUE,
+                    row.names = FALSE)
+
+  message("  Wrote ", nrow(sol_df), " soils to soils_sol, ",
+          nrow(layer_df), " layers to soils_sol_layer")
+  invisible(NULL)
 }
 
 
@@ -2354,7 +2486,14 @@ ensure_write_tables <- function(con) {
   # 23. Soils tables
   # ==================================================================
   create_if_missing("CREATE TABLE IF NOT EXISTS soils_sol (
-    id INTEGER PRIMARY KEY, name TEXT)")
+    id         INTEGER NOT NULL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    hyd_grp    TEXT NOT NULL,
+    dp_tot     REAL NOT NULL,
+    anion_excl REAL NOT NULL,
+    perc_crk   REAL NOT NULL,
+    texture    TEXT,
+    description TEXT)")
   create_if_missing("CREATE TABLE IF NOT EXISTS nutrients_sol (
     id INTEGER PRIMARY KEY, name TEXT, exp_co REAL)")
   create_if_missing("CREATE TABLE IF NOT EXISTS soils_lte_sol (
@@ -2741,7 +2880,24 @@ ensure_write_tables <- function(con) {
   
   # -- Soils layer table --
   create_if_missing("CREATE TABLE IF NOT EXISTS soils_sol_layer (
-    id INTEGER PRIMARY KEY, name TEXT)")
+    id        INTEGER NOT NULL PRIMARY KEY,
+    soil_id   INTEGER NOT NULL,
+    layer_num INTEGER NOT NULL,
+    dp        REAL NOT NULL,
+    bd        REAL NOT NULL,
+    awc       REAL NOT NULL,
+    soil_k    REAL NOT NULL,
+    carbon    REAL NOT NULL,
+    clay      REAL NOT NULL,
+    silt      REAL NOT NULL,
+    sand      REAL NOT NULL,
+    rock      REAL NOT NULL,
+    alb       REAL NOT NULL,
+    usle_k    REAL NOT NULL,
+    ec        REAL NOT NULL,
+    caco3     REAL,
+    ph        REAL,
+    FOREIGN KEY (soil_id) REFERENCES soils_sol (id) ON DELETE CASCADE)")
   
   # -- Landuse lookup table --
   create_if_missing("CREATE TABLE IF NOT EXISTS landuse_lookup (
