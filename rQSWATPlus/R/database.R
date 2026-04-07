@@ -1207,6 +1207,8 @@ qswat_write_database <- function(project,
                      "SOL_CBN", "CLAY", "SILT", "SAND",
                      "ROCK", "SOL_ALB", "USLE_K", "SOL_EC")
 
+    row_names <- names(row)
+
     for (j in seq_len(nlayers)) {
       lid <- lid + 1L
 
@@ -1214,8 +1216,9 @@ qswat_write_database <- function(project,
       cal_col <- paste0("SOL_CAL", j)
       ph_col  <- paste0("SOL_PH", j)
 
+      # Core layer props are NOT NULL in the schema; default to 0
       get_val <- function(cn) {
-        if (cn %in% names(row)) as.numeric(row[[cn]]) else 0
+        if (cn %in% row_names) as.numeric(row[[cn]]) else 0
       }
 
       layer_rows[[lid]] <- data.frame(
@@ -1234,8 +1237,8 @@ qswat_write_database <- function(project,
         alb       = get_val(col_names[10]),
         usle_k    = get_val(col_names[11]),
         ec        = get_val(col_names[12]),
-        caco3     = if (cal_col %in% names(row)) as.numeric(row[[cal_col]]) else NA_real_,
-        ph        = if (ph_col %in% names(row)) as.numeric(row[[ph_col]]) else NA_real_,
+        caco3     = if (cal_col %in% row_names) as.numeric(row[[cal_col]]) else NA_real_,
+        ph        = if (ph_col %in% row_names) as.numeric(row[[ph_col]]) else NA_real_,
         stringsAsFactors = FALSE
       )
     }
