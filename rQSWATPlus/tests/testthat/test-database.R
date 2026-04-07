@@ -458,6 +458,144 @@ test_that("midlat and midlon are computed from streams_sf geometry", {
               label = "midlon in plausible range for UTM zone 32")
 })
 
+
+
+# ---- lat/lon from watershed raster tests ----
+
+test_that("lat/lon in gis tables are non-zero when watershed raster is supplied", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  db_file   <- tempfile(fileext = ".sqlite")
+  rast_file <- tempfile(fileext = ".tif")
+  on.exit({ unlink(db_file); unlink(rast_file) }, add = TRUE)
+
+  # Two-cell watershed raster in UTM zone 32N (EPSG:32632)
+  r <- terra::rast(
+    nrows = 10, ncols = 10,
+    xmin = 500000, xmax = 503000,
+    ymin = 5000000, ymax = 5003000,
+    crs = "EPSG:32632"
+  )
+  terra::values(r) <- NA_real_
+  terra::values(r)[terra::cellFromRowCol(r, 2, 2)] <- 1  # subbasin 1
+  terra::values(r)[terra::cellFromRowCol(r, 8, 8)] <- 2  # subbasin 2
+  terra::writeRaster(r, rast_file, overwrite = TRUE)
+
+  project <- structure(list(
+    project_dir    = tempdir(),
+    watershed_file = rast_file,
+    hru_data = data.frame(
+      hru_id = 1:2, subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600), min_elevation = c(490, 580),
+      max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes  = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  for (tbl_name in c("gis_subbasins", "gis_hrus", "gis_lsus",
+                     "gis_aquifers", "gis_deep_aquifers")) {
+    tbl <- DBI::dbGetQuery(con, paste0("SELECT lat, lon FROM ", tbl_name))
+    expect_true(all(tbl$lat != 0),
+                label = paste(tbl_name, "lat is non-zero"))
+    expect_true(all(tbl$lon != 0),
+                label = paste(tbl_name, "lon is non-zero"))
+    expect_true(all(tbl$lat > 0),
+                label = paste(tbl_name, "lat is positive (N hemisphere)"))
+    expect_true(all(tbl$lon > 0 & tbl$lon < 30),
+                label = paste(tbl_name, "lon in plausible UTM 32N range"))
+  }
+})
+
+
+# ---- qswat_read_gis tests ----
+
+test_that("qswat_read_gis returns a list of gis_* tables", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  project_dir <- tempfile("readgis_")
+  dir.create(project_dir)
+  on.exit(unlink(project_dir, recursive = TRUE), add = TRUE)
+
+  project <- structure(list(
+    project_dir = project_dir,
+    hru_data = data.frame(
+      hru_id = 1:2, subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600), min_elevation = c(490, 580),
+      max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes  = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    )
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  gis <- qswat_read_gis(db_file)
+
+  expect_type(gis, "list")
+  expect_true(length(gis) > 0, label = "at least one gis_* table returned")
+  expect_true(all(grepl("^gis_", names(gis))),
+              label = "all list names start with gis_")
+
+  expect_true("gis_subbasins" %in% names(gis))
+  expect_true("gis_channels"  %in% names(gis))
+  expect_true("gis_hrus"      %in% names(gis))
+  expect_true("gis_lsus"      %in% names(gis))
+  expect_true("gis_aquifers"  %in% names(gis))
+
+  expect_true(all(vapply(gis, is.data.frame, logical(1))),
+              label = "each gis table is a data.frame")
+
+  expect_equal(nrow(gis$gis_subbasins), 2L)
+  expect_equal(nrow(gis$gis_hrus),      2L)
+})
+
+test_that("qswat_read_gis errors on missing file", {
+  expect_error(qswat_read_gis("/nonexistent/path.sqlite"), "not found")
+})
+
+test_that("qswat_read_gis errors on non-character input", {
+  expect_error(qswat_read_gis(42), "single character")
+})
+
 # ---- usersoil tests ----
 
 # Shared minimal project fixture used by all usersoil tests
