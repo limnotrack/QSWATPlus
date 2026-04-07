@@ -387,6 +387,75 @@ test_that("WSNO=0 outlet stream is excluded from channels and routing", {
 })
 
 
+# ---- midlat/midlon tests ----
+
+test_that("midlat and midlon are computed from streams_sf geometry", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+
+  db_file <- tempfile(fileext = ".sqlite")
+  on.exit(unlink(db_file), add = TRUE)
+
+  # Build two simple linestrings in UTM-like projected coords (EPSG:32632)
+  # Line 1: from (500000, 5000000) to (501000, 5001000)  -> midpoint ~(500500, 5000500)
+  # Line 2: from (502000, 5002000) to (502500, 5002500)  -> midpoint ~(502250, 5002250)
+  line1 <- sf::st_linestring(matrix(c(500000, 5000000, 501000, 5001000), ncol = 2, byrow = TRUE))
+  line2 <- sf::st_linestring(matrix(c(502000, 5002000, 502500, 5002500), ncol = 2, byrow = TRUE))
+  streams_sf <- sf::st_sf(
+    LINKNO   = c(1L, 2L),
+    DSLINKNO = c(-1L, 1L),
+    WSNO     = c(1L, 2L),
+    strmOrder = c(2L, 1L),
+    Length   = c(1000, 500),
+    geometry = sf::st_sfc(line1, line2, crs = 32632)
+  )
+
+  project <- structure(list(
+    project_dir = tempdir(),
+    hru_data = data.frame(
+      hru_id = 1:2, subbasin = c(1L, 2L),
+      landuse = c("AGRL", "FRSD"), soil = c("TX047", "TX236"),
+      slope_class = c(1L, 1L), cell_count = c(100L, 200L),
+      area_ha = c(10.0, 20.0), mean_elevation = c(500, 600),
+      mean_slope = c(3.0, 8.0), stringsAsFactors = FALSE
+    ),
+    basin_data = data.frame(
+      subbasin = c(1L, 2L), area_ha = c(10.0, 20.0),
+      mean_elevation = c(500, 600), min_elevation = c(490, 580),
+      max_elevation = c(510, 620), mean_slope = c(3.0, 8.0),
+      n_hrus = c(1L, 1L), n_landuses = c(1L, 1L), n_soils = c(1L, 1L),
+      stringsAsFactors = FALSE
+    ),
+    slope_classes = qswat_create_slope_classes(),
+    stream_topology = data.frame(
+      LINKNO = c(1L, 2L), DSLINKNO = c(-1L, 1L),
+      WSNO = c(1L, 2L), strmOrder = c(2L, 1L),
+      Length = c(1000, 500), stringsAsFactors = FALSE
+    ),
+    streams_sf = streams_sf
+  ), class = "qswat_project")
+
+  qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  channels <- DBI::dbGetQuery(con, "SELECT midlat, midlon FROM gis_channels")
+  expect_equal(nrow(channels), 2L)
+
+  # midlat/midlon must be non-zero (projected midpoints converted to WGS84)
+  expect_true(all(channels$midlat != 0), label = "midlat is non-zero")
+  expect_true(all(channels$midlon != 0), label = "midlon is non-zero")
+
+  # Both midlatitudes should be positive (northern hemisphere, ~45 N for UTM32)
+  expect_true(all(channels$midlat > 0), label = "midlat is positive (N hemisphere)")
+
+  # midlon values should be within a plausible range for UTM zone 32 (~6-18 E)
+  expect_true(all(channels$midlon > 0 & channels$midlon < 30),
+              label = "midlon in plausible range for UTM zone 32")
+})
+
 # ---- usersoil tests ----
 
 # Shared minimal project fixture used by all usersoil tests

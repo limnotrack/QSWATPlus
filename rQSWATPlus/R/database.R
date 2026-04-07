@@ -892,6 +892,32 @@ qswat_write_database <- function(project,
     strahler_val[is.na(strahler_val)] <- 1L
   }
 
+  # Calculate midpoint lat/lon from stream geometries if available.
+  # Matches the Python approach: midpoint is 50% along each reach, then
+  # projected to WGS84 lat/lon.
+  midlat_val <- rep(0, sum(valid))
+  midlon_val <- rep(0, sum(valid))
+  if (!is.null(project$streams_sf) && inherits(project$streams_sf, "sf")) {
+    tryCatch({
+      streams_valid <- project$streams_sf[valid, ]
+      # Sample the midpoint (50%) along each linestring
+      geom_valid <- sf::st_geometry(streams_valid)
+      mids <- sf::st_line_sample(geom_valid, sample = 0.5)
+      # Preserve CRS for the transform
+      mids <- sf::st_set_crs(mids, sf::st_crs(streams_valid))
+      # Reproject to WGS84 for lat/lon output
+      mids_wgs84 <- sf::st_transform(mids, crs = 4326)
+      coords <- sf::st_coordinates(mids_wgs84)
+      if (nrow(coords) == sum(valid)) {
+        midlon_val <- as.numeric(coords[, "X"])
+        midlat_val <- as.numeric(coords[, "Y"])
+      }
+    }, error = function(e) {
+      message("Note: Could not compute midlat/midlon from stream geometries: ",
+              conditionMessage(e))
+    })
+  }
+
   df <- data.frame(
     id = seq_len(sum(valid)),
     subbasin = topo$WSNO[valid],
@@ -903,8 +929,8 @@ qswat_write_database <- function(project,
     dep2 = 0.5,
     elevmin = 0,
     elevmax = 0,
-    midlat = 0,
-    midlon = 0,
+    midlat = midlat_val,
+    midlon = midlon_val,
     stringsAsFactors = FALSE
   )
 
