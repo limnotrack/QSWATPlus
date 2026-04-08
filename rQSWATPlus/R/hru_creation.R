@@ -157,6 +157,11 @@ qswat_create_hrus <- function(project,
     stop("'target_hrus' must be a positive integer when hru_method = 'target'.",
          call. = FALSE)
   }
+  if (hru_method == "filter_area" &&
+      (!is.numeric(area_threshold) || area_threshold < 0)) {
+    stop("'area_threshold' must be a non-negative numeric value when hru_method = 'filter_area'.",
+         call. = FALSE)
+  }
   
   # Load rasters
   wshed_rast <- .load_watershed_raster(project)
@@ -274,7 +279,9 @@ qswat_create_hrus <- function(project,
     target = .apply_target_filter(hru_data, target_hrus)
   )
 
-  # Apply target HRU filtering (legacy path kept for backward compat)
+  # Apply target HRU filtering (legacy path kept for backward compat when
+  # hru_method is not "target" but target_hrus is still supplied)
+  # NOTE: prefer hru_method = "target" for intentional target-based selection.
   if (hru_method != "target" && !is.null(target_hrus) && target_hrus > 0) {
     hru_data <- .apply_target_filter(hru_data, target_hrus)
   }
@@ -489,8 +496,9 @@ qswat_create_hrus <- function(project,
 .apply_area_filter <- function(hru_data, area_threshold) {
   kept <- hru_data[hru_data$area_ha >= area_threshold, ]
   if (nrow(kept) == 0) {
-    stop("All HRUs were eliminated by the area threshold. Use a smaller value.",
-         call. = FALSE)
+    stop(sprintf(
+      "All HRUs were eliminated by area_threshold = %g ha. Use a smaller value.",
+      area_threshold), call. = FALSE)
   }
   kept
 }
