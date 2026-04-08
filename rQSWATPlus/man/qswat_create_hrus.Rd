@@ -9,10 +9,16 @@ qswat_create_hrus(
   landuse_lookup,
   soil_lookup,
   slope_classes = qswat_create_slope_classes(),
-  landuse_threshold = 0,
-  soil_threshold = 0,
-  slope_threshold = 0,
-  target_hrus = NULL
+  hru_method = c("filter_threshold", "dominant_hru", "dominant_luse", "filter_area",
+    "target"),
+  threshold_type = c("percent", "area"),
+  landuse_threshold = 15,
+  soil_threshold = 10,
+  slope_threshold = 10,
+  area_threshold = 0,
+  target_hrus = NULL,
+  use_gwflow = FALSE,
+  use_aquifers = TRUE
 )
 }
 \arguments{
@@ -28,23 +34,80 @@ mapping raster values to soil names.}
 \item{slope_classes}{A data frame from \code{\link[=qswat_create_slope_classes]{qswat_create_slope_classes()}}
 defining slope percentage classes. Default creates a single class.}
 
-\item{landuse_threshold}{Numeric. Minimum percentage of subbasin area
-that a land use must occupy to be included. Default is 0 (include
-all).}
+\item{hru_method}{Character. Method for selecting HRUs. One of:
+\describe{
+\item{\code{"dominant_hru"}}{Single HRU per subbasin: the combination
+of land use, soil, and slope class with the largest area. This
+corresponds to the "Dominant HRU" option in the QSWATPlus GUI.}
+\item{\code{"dominant_luse"}}{Single HRU per subbasin formed from the
+dominant land use, the dominant soil within that land use, and
+the dominant slope class within that soil. This corresponds to
+the "Dominant landuse, soil and slope" option.}
+\item{\code{"filter_threshold"}}{Multiple HRUs retained after applying
+hierarchical percentage or area thresholds (default). This
+corresponds to the "Filter by landuse, soil, slope" option.}
+\item{\code{"filter_area"}}{Multiple HRUs retained by applying a
+single minimum-area threshold. This corresponds to the "Filter
+by area" option.}
+\item{\code{"target"}}{Multiple HRUs reduced to approximately
+\code{target_hrus} per subbasin by removing the smallest HRUs. This
+corresponds to the "Target number of HRUs" option.}
+}
+Default is \code{"filter_threshold"}.}
 
-\item{soil_threshold}{Numeric. Minimum percentage of land use area
-that a soil must occupy to be included. Default is 0 (include all).}
+\item{threshold_type}{Character. Whether threshold values are
+percentages (\code{"percent"}, the default) or absolute areas in
+hectares (\code{"area"}). Only used when \code{hru_method} is
+\code{"filter_threshold"}.}
 
-\item{slope_threshold}{Numeric. Minimum percentage of soil area that
-a slope class must occupy to be included. Default is 0 (include
-all).}
+\item{landuse_threshold}{Numeric. When \code{hru_method = "filter_threshold"}
+and \code{threshold_type = "percent"}: minimum percentage of subbasin
+area that a land use must occupy to be kept.  When
+\code{threshold_type = "area"}: minimum area in hectares.  Default 0
+(keep all).}
 
-\item{target_hrus}{Integer or NULL. If specified, filter HRUs to
-approximately this many per subbasin using area-based filtering.
-NULL means no target filtering.}
+\item{soil_threshold}{Numeric. When \code{hru_method = "filter_threshold"}
+and \code{threshold_type = "percent"}: minimum percentage of land-use
+area that a soil must occupy.  When \code{threshold_type = "area"}:
+minimum area in hectares.  Default 0 (keep all).}
+
+\item{slope_threshold}{Numeric. When \code{hru_method = "filter_threshold"}
+and \code{threshold_type = "percent"}: minimum percentage of soil area
+that a slope class must occupy.  When \code{threshold_type = "area"}:
+minimum area in hectares.  Default 0 (keep all).}
+
+\item{area_threshold}{Numeric. Minimum area in hectares used when
+\code{hru_method = "filter_area"}. Default 0 (keep all).}
+
+\item{target_hrus}{Integer or NULL. Target number of HRUs per
+subbasin used when \code{hru_method = "target"}. NULL means no target
+filtering.}
+
+\item{use_gwflow}{Logical. If \code{TRUE}, gwflow groundwater modelling
+will be used (equivalent to checking "Use gwflow" in the
+QSWATPlus GUI). The project database \code{use_gwflow} flag will be set
+to 1. Call \code{\link[=qswat_setup_gwflow]{qswat_setup_gwflow()}} after \code{\link[=qswat_write_database]{qswat_write_database()}}
+to initialise the gwflow tables. Default \code{FALSE}.}
+
+\item{use_aquifers}{Logical. If \code{TRUE} (the default), SWAT+ aquifer
+objects are created for each subbasin (equivalent to "Use SWAT+
+aquifers" in the GUI). Set to \code{FALSE} to omit aquifer tables.}
 }
 \value{
-An updated \code{qswat_project} object with HRU data.
+An updated \code{qswat_project} object with the following new fields:
+\describe{
+\item{\code{hru_data}}{Data frame of HRU attributes (one row per HRU).}
+\item{\code{basin_data}}{Data frame of subbasin-level statistics.}
+\item{\code{hru_sf}}{\code{sf} polygon object: one (possibly multi-part) polygon
+per retained HRU, with all HRU attributes joined. Suitable for
+mapping and spatial analysis.}
+\item{\code{lsu_sf}}{\code{sf} polygon object: one polygon per LSU / subbasin
+(in rQSWATPlus, LSUs and subbasins are 1:1). Suitable for overlaying
+subbasin boundaries.}
+\item{\code{slope_classes}}{Slope-class definition used.}
+\item{\code{use_gwflow}}{Logical groundwater flag.}
+\item{\code{use_aquifers}}{Logical aquifer flag.}
+}
 }
 \description{
 Creates HRUs by overlaying land use, soil, and slope rasters on the
@@ -59,16 +122,16 @@ The HRU creation process follows the QSWATPlus approach:
 land use, soil, and slope values
 \item Classify slope into the specified slope bands
 \item Group cells by subbasin-landuse-soil-slope combinations
-\item Apply area thresholds to filter small HRUs
+\item Apply the selected HRU method to filter/reduce HRUs
 \item Compute statistics (area, mean elevation, mean slope) for
-each HRU
+each retained HRU
 }
 
-The three threshold parameters work hierarchically (dominant method):
-land use threshold is applied first within each subbasin, then soil
-threshold within each remaining land use, then slope threshold within
-each remaining soil type. Areas from eliminated HRUs are
-redistributed proportionally.
+The \code{"filter_threshold"} method applies thresholds hierarchically:
+land use threshold within each subbasin, then soil threshold within
+each remaining land use, then slope threshold within each remaining
+soil. Areas from eliminated HRUs are redistributed proportionally to
+the surviving HRUs.
 }
 \examples{
 \dontrun{
@@ -76,8 +139,23 @@ lu_lookup <- qswat_read_landuse_lookup("landuse_lookup.csv")
 soil_lookup <- qswat_read_soil_lookup("soil_lookup.csv")
 slope_classes <- qswat_create_slope_classes(c(0, 5, 15, 9999))
 
+# Multiple HRUs with percentage thresholds (default)
 project <- qswat_create_hrus(project, lu_lookup, soil_lookup,
-                              slope_classes)
+                              slope_classes,
+                              hru_method = "filter_threshold",
+                              landuse_threshold = 20,
+                              soil_threshold = 10,
+                              slope_threshold = 10)
+
+# Single dominant HRU per subbasin
+project <- qswat_create_hrus(project, lu_lookup, soil_lookup,
+                              hru_method = "dominant_hru")
+
+# Target number of HRUs with gwflow enabled
+project <- qswat_create_hrus(project, lu_lookup, soil_lookup,
+                              hru_method = "target",
+                              target_hrus = 5L,
+                              use_gwflow = TRUE)
 }
 
 }

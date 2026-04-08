@@ -15,9 +15,15 @@ qswat_run(
   threshold = NULL,
   channel_threshold = NULL,
   slope_breaks = c(0, 9999),
+  hru_method = "filter_threshold",
+  threshold_type = "percent",
   landuse_threshold = 0,
   soil_threshold = 0,
   slope_threshold = 0,
+  area_threshold = 0,
+  target_hrus = NULL,
+  use_gwflow = FALSE,
+  use_aquifers = TRUE,
   n_processes = 1L,
   quiet = FALSE,
   db_file = NULL,
@@ -47,11 +53,35 @@ If NULL, 1 percent of total cells is used.}
 \item{slope_breaks}{Numeric vector. Slope class boundaries in
 percent. Default \code{c(0, 9999)} for a single class.}
 
-\item{landuse_threshold}{Numeric. Min land use percent. Default 0.}
+\item{hru_method}{Character. HRU selection method. See
+\code{\link[=qswat_create_hrus]{qswat_create_hrus()}} for the full description of each option.
+Default \code{"filter_threshold"}.}
 
-\item{soil_threshold}{Numeric. Min soil percent. Default 0.}
+\item{threshold_type}{Character. \code{"percent"} (default) or \code{"area"}.
+Controls whether \code{landuse_threshold}, \code{soil_threshold}, and
+\code{slope_threshold} are percentages or absolute hectares. Only used
+when \code{hru_method = "filter_threshold"}.}
 
-\item{slope_threshold}{Numeric. Min slope percent. Default 0.}
+\item{landuse_threshold}{Numeric. Min land use percent (or area ha).
+Default 0.}
+
+\item{soil_threshold}{Numeric. Min soil percent (or area ha).
+Default 0.}
+
+\item{slope_threshold}{Numeric. Min slope percent (or area ha).
+Default 0.}
+
+\item{area_threshold}{Numeric. Minimum HRU area in hectares used
+when \code{hru_method = "filter_area"}. Default 0.}
+
+\item{target_hrus}{Integer or NULL. Target number of HRUs per
+subbasin when \code{hru_method = "target"}. Default NULL.}
+
+\item{use_gwflow}{Logical. Enable gwflow groundwater modelling.
+Default FALSE.}
+
+\item{use_aquifers}{Logical. Create SWAT+ aquifer objects. Default
+TRUE.}
 
 \item{n_processes}{Integer. Number of MPI processes. Default 1.}
 
