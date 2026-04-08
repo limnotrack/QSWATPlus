@@ -63,9 +63,20 @@
 #'   objects are created for each subbasin (equivalent to "Use SWAT+
 #'   aquifers" in the GUI). Set to `FALSE` to omit aquifer tables.
 #'
-#' @return An updated `qswat_project` object with HRU data and the
-#'   groundwater settings stored in `project$use_gwflow` and
-#'   `project$use_aquifers`.
+#' @return An updated `qswat_project` object with the following new fields:
+#'   \describe{
+#'     \item{`hru_data`}{Data frame of HRU attributes (one row per HRU).}
+#'     \item{`basin_data`}{Data frame of subbasin-level statistics.}
+#'     \item{`hru_sf`}{`sf` polygon object: one (possibly multi-part) polygon
+#'       per retained HRU, with all HRU attributes joined. Suitable for
+#'       mapping and spatial analysis.}
+#'     \item{`lsu_sf`}{`sf` polygon object: one polygon per LSU / subbasin
+#'       (in rQSWATPlus, LSUs and subbasins are 1:1). Suitable for overlaying
+#'       subbasin boundaries.}
+#'     \item{`slope_classes`}{Slope-class definition used.}
+#'     \item{`use_gwflow`}{Logical groundwater flag.}
+#'     \item{`use_aquifers`}{Logical aquifer flag.}
+#'   }
 #'
 #' @details
 #' The HRU creation process follows the QSWATPlus approach:
@@ -199,8 +210,9 @@ qswat_create_hrus <- function(project,
   # Calculate cell area
   cell_area <- .compute_cell_area(wshed_rast, project$units)
   
-  # Build cell data frame
+  # Build cell data frame (cell_idx tracks each row's position in wshed_vals)
   cell_data <- data.frame(
+    cell_idx = which(valid),
     subbasin = wshed_vals[valid],
     landuse_val = landuse_vals[valid],
     soil_val = soil_vals[valid],
@@ -291,6 +303,11 @@ qswat_create_hrus <- function(project,
   
   # Compute basin-level statistics
   basin_data <- .compute_basin_stats(hru_data, cell_data, cell_area)
+  
+  # Build spatial HRU and LSU polygon objects
+  message("Building spatial HRU and LSU polygons...")
+  project$hru_sf  <- .build_hru_sf(wshed_rast, cell_data, hru_data)
+  project$lsu_sf  <- .build_lsu_sf(wshed_rast)
   
   project$hru_data <- hru_data
   project$basin_data <- basin_data
@@ -593,4 +610,70 @@ qswat_create_hrus <- function(project,
   })
   
   do.call(rbind, basin_list)
+}
+
+
+#' Build sf polygon object for HRUs
+#'
+#' Creates a raster in which every valid watershed cell is labelled with its
+#' HRU ID, dissolves contiguous cells sharing the same ID into polygons, and
+#' joins the HRU attribute table.  Cells whose exact (subbasin, landuse, soil,
+#' slope_class) combination was eliminated by the chosen HRU method are
+#' reassigned to the largest-area HRU in their subbasin so that the entire
+#' watershed remains covered.
+#' @noRd
+.build_hru_sf <- function(wshed_rast, cell_data, hru_data) {
+  # Build key -> hru_id lookup from the retained HRUs
+  hru_key <- paste(hru_data$subbasin, hru_data$landuse,
+                   hru_data$soil, hru_data$slope_class, sep = "|")
+  hru_id_map <- stats::setNames(hru_data$hru_id, hru_key)
+
+  # Map every valid+mapped cell to its HRU ID
+  cell_key <- paste(cell_data$subbasin, cell_data$landuse,
+                    cell_data$soil, cell_data$slope_class, sep = "|")
+  cell_hru_id <- hru_id_map[cell_key]
+
+  # For cells whose combination was eliminated (NA after lookup), assign the
+  # dominant (largest-area) HRU of the same subbasin
+  na_cells <- is.na(cell_hru_id)
+  if (any(na_cells)) {
+    dom_by_sub <- vapply(unique(hru_data$subbasin), function(s) {
+      sh <- hru_data[hru_data$subbasin == s, , drop = FALSE]
+      sh$hru_id[which.max(sh$area_ha)]
+    }, integer(1L))
+    dom_map <- stats::setNames(dom_by_sub,
+                               as.character(unique(hru_data$subbasin)))
+    cell_hru_id[na_cells] <-
+      dom_map[as.character(cell_data$subbasin[na_cells])]
+  }
+
+  # Fill a raster with HRU IDs.
+  # cell_data$cell_idx holds the 1-based linear cell index in wshed_rast for
+  # each row; it was stored as which(valid) when cell_data was first built,
+  # so it is always a valid index into hru_vals.
+  hru_vals <- rep(NA_integer_, terra::ncell(wshed_rast))
+  hru_vals[cell_data$cell_idx] <- cell_hru_id
+  hru_rast <- terra::rast(wshed_rast)
+  names(hru_rast) <- "hru_id"
+  terra::values(hru_rast) <- hru_vals
+
+  # Vectorise: dissolve contiguous cells sharing the same HRU ID
+  polys    <- terra::as.polygons(hru_rast, dissolve = TRUE)
+  polys_sf <- sf::st_as_sf(polys)
+
+  # Join HRU attributes
+  merge(polys_sf, hru_data, by = "hru_id", all.x = TRUE)
+}
+
+
+#' Build sf polygon object for LSUs (subbasins)
+#'
+#' Vectorises the watershed raster so that each unique subbasin ID becomes one
+#' (possibly multi-part) polygon.  In rQSWATPlus, LSUs and subbasins are in a
+#' 1:1 relationship.
+#' @noRd
+.build_lsu_sf <- function(wshed_rast) {
+  polys <- terra::as.polygons(wshed_rast, dissolve = TRUE)
+  names(polys)[1] <- "subbasin"
+  sf::st_as_sf(polys)
 }
