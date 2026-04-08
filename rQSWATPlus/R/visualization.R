@@ -389,7 +389,295 @@ qswat_plot_hru_summary <- function(project, by_subbasin = FALSE,
 }
 
 
-# -- Internal helpers --------------------------------------------------
+#' Plot HRU Map
+#'
+#' Creates a spatial map of HRU polygons, coloured by a chosen attribute.
+#' Requires [qswat_create_hrus()] to have been run.
+#'
+#' @param project A `qswat_project` object.
+#' @param color_by Character. Column in `project$hru_sf` used to colour the
+#'   polygons. Typical choices: `"landuse"`, `"soil"`, `"slope_class"`,
+#'   `"hru_id"`. Default `"landuse"`.
+#' @param title Character. Map title.
+#'
+#' @return A `tmap` object.
+#'
+#' @examples
+#' \dontrun{
+#' project <- qswat_create_hrus(project, lu_lookup, soil_lookup)
+#' qswat_plot_hrus(project)
+#' qswat_plot_hrus(project, color_by = "soil")
+#' }
+#'
+#' @export
+qswat_plot_hrus <- function(project, color_by = "landuse",
+                             title = "HRUs") {
+  .check_tmap()
+
+  if (is.null(project$hru_sf)) {
+    stop("HRU spatial data not available. Run qswat_create_hrus() first.",
+         call. = FALSE)
+  }
+  if (!color_by %in% names(project$hru_sf)) {
+    stop("Column '", color_by, "' not found in project$hru_sf.",
+         call. = FALSE)
+  }
+
+  tmap::tm_shape(project$hru_sf) +
+    tmap::tm_polygons(
+      fill        = color_by,
+      fill.scale  = tmap::tm_scale_categorical(),
+      col         = "grey30",
+      lwd         = 0.5,
+      fill.legend = tmap::tm_legend(
+        title    = color_by,
+        position = tmap::tm_pos_out("right", "center")
+      )
+    ) +
+    tmap::tm_title(text = title)
+}
+
+
+#' Plot LSU (Landscape Unit / Subbasin) Map
+#'
+#' Creates a spatial map of Landscape Units (LSUs).  In rQSWATPlus, LSUs and
+#' subbasins are in a 1:1 relationship; each polygon represents one subbasin /
+#' LSU.  Requires [qswat_create_hrus()] to have been run (or at least
+#' [qswat_delineate()]).
+#'
+#' @param project A `qswat_project` object.
+#' @param title Character. Map title.
+#'
+#' @return A `tmap` object.
+#'
+#' @examples
+#' \dontrun{
+#' project <- qswat_create_hrus(project, lu_lookup, soil_lookup)
+#' qswat_plot_lsus(project)
+#' }
+#'
+#' @export
+qswat_plot_lsus <- function(project, title = "Landscape Units (LSUs)") {
+  .check_tmap()
+
+  lsu_sf <- project$lsu_sf
+  if (is.null(lsu_sf)) {
+    if (is.null(project$watershed_file) ||
+        !file.exists(project$watershed_file)) {
+      stop("LSU data not available. Run qswat_delineate() first.",
+           call. = FALSE)
+    }
+    wshed  <- terra::rast(project$watershed_file)
+    lsu_sf <- .build_lsu_sf(wshed)
+  }
+
+  tmap::tm_shape(lsu_sf) +
+    tmap::tm_polygons(
+      fill        = "subbasin",
+      fill.scale  = tmap::tm_scale_categorical(values = "brewer.set3"),
+      col         = "black",
+      lwd         = 1.5,
+      fill.legend = tmap::tm_legend(
+        title    = "LSU / Subbasin",
+        position = tmap::tm_pos_out("right", "center")
+      )
+    ) +
+    tmap::tm_title(text = title)
+}
+
+
+#' Plot Watershed Overview
+#'
+#' Creates a combined overlay map that can include any subset of: DEM,
+#' land use, soil, LSU/subbasin polygons, HRU polygons, stream network, and
+#' outlet points.
+#'
+#' @param project A `qswat_project` object.
+#' @param layers Character vector of layers to include. Any combination of:
+#'   \describe{
+#'     \item{`"dem"`}{DEM raster shown as a greyscale background.}
+#'     \item{`"landuse"`}{Land-use raster (semi-transparent categorical fill).}
+#'     \item{`"soil"`}{Soil raster (semi-transparent categorical fill).}
+#'     \item{`"lsu"`}{LSU / subbasin polygons coloured by subbasin ID.}
+#'     \item{`"hru"`}{HRU polygons coloured by land use.}
+#'     \item{`"streams"`}{Stream-network lines in blue.}
+#'     \item{`"outlets"`}{Outlet points in red.}
+#'   }
+#'   Default: `c("dem", "lsu", "hru", "streams", "outlets")`.
+#' @param landuse_lookup Data frame from [qswat_read_landuse_lookup()], or
+#'   `NULL` to read from the project.  Only used when `"landuse"` is in
+#'   `layers`.
+#' @param soil_lookup Data frame from [qswat_read_soil_lookup()], or `NULL`
+#'   to read from the project.  Only used when `"soil"` is in `layers`.
+#' @param title Character. Map title.
+#'
+#' @return A `tmap` object.
+#'
+#' @examples
+#' \dontrun{
+#' project <- qswat_run(...)
+#'
+#' # Default layers
+#' qswat_plot_overview(project)
+#'
+#' # All available layers
+#' qswat_plot_overview(project,
+#'   layers = c("dem", "landuse", "soil", "lsu", "hru", "streams", "outlets"))
+#' }
+#'
+#' @export
+qswat_plot_overview <- function(project,
+                                layers = c("dem", "lsu", "hru",
+                                           "streams", "outlets"),
+                                landuse_lookup = NULL,
+                                soil_lookup    = NULL,
+                                title          = "Watershed Overview") {
+  .check_tmap()
+
+  m <- NULL
+
+  # 1. DEM greyscale background ----------------------------------------
+  if ("dem" %in% layers &&
+      !is.null(project$dem_file) && file.exists(project$dem_file)) {
+    dem <- terra::rast(project$dem_file)
+    m <- tmap::tm_shape(dem) +
+      tmap::tm_raster(
+        col.scale  = tmap::tm_scale_continuous(values = "brewer.greys"),
+        col_alpha  = 0.7,
+        col.legend = tmap::tm_legend(
+          title    = "Elevation (m)",
+          position = tmap::tm_pos_out("right", "center")
+        )
+      )
+  }
+
+  # 2. Land-use raster (semi-transparent) --------------------------------
+  if ("landuse" %in% layers &&
+      !is.null(project$landuse_file) && file.exists(project$landuse_file)) {
+    if (is.null(landuse_lookup)) {
+      landuse_lookup <- qswat_read_landuse_lookup(project$landuse_lookup)
+    }
+    lu_rast   <- terra::rast(project$landuse_file)
+    lu_vals   <- terra::values(lu_rast, mat = FALSE)
+    lu_labels <- .map_lookup(lu_vals, landuse_lookup$value,
+                             landuse_lookup$landuse)
+    lu_cat    <- terra::rast(lu_rast)
+    terra::values(lu_cat) <- as.integer(factor(lu_labels))
+    levels(lu_cat) <- data.frame(
+      id      = seq_along(levels(factor(lu_labels))),
+      landuse = levels(factor(lu_labels))
+    )
+    m <- m +
+      tmap::tm_shape(lu_cat) +
+      tmap::tm_raster(
+        # col.scale / col.legend are the tmap v4 API for tm_raster (rasters
+        # use col; polygons use fill).
+        col.scale  = tmap::tm_scale_categorical(values = "brewer.pastel1"),
+        col_alpha  = 0.5,
+        col.legend = tmap::tm_legend(
+          title    = "Land Use",
+          position = tmap::tm_pos_out("right", "center")
+        )
+      )
+  }
+
+  # 3. Soil raster (semi-transparent) ------------------------------------
+  if ("soil" %in% layers &&
+      !is.null(project$soil_file) && file.exists(project$soil_file)) {
+    if (is.null(soil_lookup)) {
+      soil_lookup <- qswat_read_soil_lookup(project$soil_lookup)
+    }
+    soil_rast   <- terra::rast(project$soil_file)
+    soil_vals   <- terra::values(soil_rast, mat = FALSE)
+    soil_labels <- .map_lookup(soil_vals, soil_lookup$value, soil_lookup$soil)
+    soil_cat    <- terra::rast(soil_rast)
+    terra::values(soil_cat) <- as.integer(factor(soil_labels))
+    levels(soil_cat) <- data.frame(
+      id   = seq_along(levels(factor(soil_labels))),
+      soil = levels(factor(soil_labels))
+    )
+    m <- m +
+      tmap::tm_shape(soil_cat) +
+      tmap::tm_raster(
+        # Use a different palette from landuse so both can be shown together.
+        col.scale  = tmap::tm_scale_categorical(values = "brewer.pastel2"),
+        col_alpha  = 0.5,
+        col.legend = tmap::tm_legend(
+          title    = "Soil",
+          position = tmap::tm_pos_out("right", "center")
+        )
+      )
+  }
+
+  # 4. LSU / subbasin polygons -------------------------------------------
+  if ("lsu" %in% layers) {
+    lsu_sf <- project$lsu_sf
+    if (is.null(lsu_sf) &&
+        !is.null(project$watershed_file) &&
+        file.exists(project$watershed_file)) {
+      wshed  <- terra::rast(project$watershed_file)
+      lsu_sf <- .build_lsu_sf(wshed)
+    }
+    if (!is.null(lsu_sf)) {
+      m <- m +
+        tmap::tm_shape(lsu_sf) +
+        tmap::tm_polygons(
+          fill        = "subbasin",
+          fill.scale  = tmap::tm_scale_categorical(values = "brewer.set3"),
+          fill_alpha  = 0.3,
+          col         = "black",
+          lwd         = 1.5,
+          fill.legend = tmap::tm_legend(
+            title    = "LSU / Subbasin",
+            position = tmap::tm_pos_out("right", "center")
+          )
+        )
+    }
+  }
+
+  # 5. HRU polygons coloured by land use ---------------------------------
+  if ("hru" %in% layers && !is.null(project$hru_sf)) {
+    m <- m +
+      tmap::tm_shape(project$hru_sf) +
+      tmap::tm_polygons(
+        fill        = "landuse",
+        fill.scale  = tmap::tm_scale_categorical(),
+        fill_alpha  = 0.6,
+        col         = "grey40",
+        lwd         = 0.4,
+        fill.legend = tmap::tm_legend(
+          title    = "HRU Land Use",
+          position = tmap::tm_pos_out("right", "center")
+        )
+      )
+  }
+
+  # 6. Stream network ----------------------------------------------------
+  if ("streams" %in% layers && !is.null(project$streams_sf)) {
+    m <- m +
+      tmap::tm_shape(project$streams_sf) +
+      tmap::tm_lines(col = "blue", lwd = 1.5)
+  }
+
+  # 7. Outlet points -----------------------------------------------------
+  if ("outlets" %in% layers &&
+      !is.null(project$outlet_file) &&
+      file.exists(project$outlet_file)) {
+    outlets_sf <- sf::st_read(project$outlet_file, quiet = TRUE)
+    m <- m +
+      tmap::tm_shape(outlets_sf) +
+      tmap::tm_dots(fill = "red", size = 0.3)
+  }
+
+  if (is.null(m)) {
+    stop("No valid layers could be drawn. ",
+         "Check that the requested layers exist in the project.",
+         call. = FALSE)
+  }
+
+  m + tmap::tm_title(text = title)
+}
+
 
 #' Check tmap availability
 #' @noRd
