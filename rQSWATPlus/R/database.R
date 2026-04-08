@@ -132,8 +132,10 @@ qswat_write_database <- function(project,
   # Write LSU data
   .write_lsu_table(con, project, centroids)
 
-  # Write aquifer data
-  .write_aquifer_table(con, project$basin_data, centroids)
+  # Write aquifer data (only when SWAT+ aquifers are enabled)
+  if (!isFALSE(project$use_aquifers)) {
+    .write_aquifer_table(con, project$basin_data, centroids)
+  }
 
   # Write water body data
   .write_water_table(con)
@@ -1469,7 +1471,7 @@ qswat_write_database <- function(project,
     output_last_imported = NA_character_,
     imported_gis = 1L,
     is_lte = 0L,
-    use_gwflow = 0L,
+    use_gwflow = if (isTRUE(project$use_gwflow)) 1L else 0L,
     stringsAsFactors = FALSE
   )
 

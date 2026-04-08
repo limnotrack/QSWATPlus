@@ -12,19 +12,60 @@
 #'   mapping raster values to soil names.
 #' @param slope_classes A data frame from [qswat_create_slope_classes()]
 #'   defining slope percentage classes. Default creates a single class.
-#' @param landuse_threshold Numeric. Minimum percentage of subbasin area
-#'   that a land use must occupy to be included. Default is 0 (include
-#'   all).
-#' @param soil_threshold Numeric. Minimum percentage of land use area
-#'   that a soil must occupy to be included. Default is 0 (include all).
-#' @param slope_threshold Numeric. Minimum percentage of soil area that
-#'   a slope class must occupy to be included. Default is 0 (include
-#'   all).
-#' @param target_hrus Integer or NULL. If specified, filter HRUs to
-#'   approximately this many per subbasin using area-based filtering.
-#'   NULL means no target filtering.
+#' @param hru_method Character. Method for selecting HRUs. One of:
+#'   \describe{
+#'     \item{`"dominant_hru"`}{Single HRU per subbasin: the combination
+#'       of land use, soil, and slope class with the largest area. This
+#'       corresponds to the "Dominant HRU" option in the QSWATPlus GUI.}
+#'     \item{`"dominant_luse"`}{Single HRU per subbasin formed from the
+#'       dominant land use, the dominant soil within that land use, and
+#'       the dominant slope class within that soil. This corresponds to
+#'       the "Dominant landuse, soil and slope" option.}
+#'     \item{`"filter_threshold"`}{Multiple HRUs retained after applying
+#'       hierarchical percentage or area thresholds (default). This
+#'       corresponds to the "Filter by landuse, soil, slope" option.}
+#'     \item{`"filter_area"`}{Multiple HRUs retained by applying a
+#'       single minimum-area threshold. This corresponds to the "Filter
+#'       by area" option.}
+#'     \item{`"target"`}{Multiple HRUs reduced to approximately
+#'       `target_hrus` per subbasin by removing the smallest HRUs. This
+#'       corresponds to the "Target number of HRUs" option.}
+#'   }
+#'   Default is `"filter_threshold"`.
+#' @param threshold_type Character. Whether threshold values are
+#'   percentages (`"percent"`, the default) or absolute areas in
+#'   hectares (`"area"`). Only used when `hru_method` is
+#'   `"filter_threshold"`.
+#' @param landuse_threshold Numeric. When `hru_method = "filter_threshold"`
+#'   and `threshold_type = "percent"`: minimum percentage of subbasin
+#'   area that a land use must occupy to be kept.  When
+#'   `threshold_type = "area"`: minimum area in hectares.  Default 0
+#'   (keep all).
+#' @param soil_threshold Numeric. When `hru_method = "filter_threshold"`
+#'   and `threshold_type = "percent"`: minimum percentage of land-use
+#'   area that a soil must occupy.  When `threshold_type = "area"`:
+#'   minimum area in hectares.  Default 0 (keep all).
+#' @param slope_threshold Numeric. When `hru_method = "filter_threshold"`
+#'   and `threshold_type = "percent"`: minimum percentage of soil area
+#'   that a slope class must occupy.  When `threshold_type = "area"`:
+#'   minimum area in hectares.  Default 0 (keep all).
+#' @param area_threshold Numeric. Minimum area in hectares used when
+#'   `hru_method = "filter_area"`. Default 0 (keep all).
+#' @param target_hrus Integer or NULL. Target number of HRUs per
+#'   subbasin used when `hru_method = "target"`. NULL means no target
+#'   filtering.
+#' @param use_gwflow Logical. If `TRUE`, gwflow groundwater modelling
+#'   will be used (equivalent to checking "Use gwflow" in the
+#'   QSWATPlus GUI). The project database `use_gwflow` flag will be set
+#'   to 1. Call [qswat_setup_gwflow()] after [qswat_write_database()]
+#'   to initialise the gwflow tables. Default `FALSE`.
+#' @param use_aquifers Logical. If `TRUE` (the default), SWAT+ aquifer
+#'   objects are created for each subbasin (equivalent to "Use SWAT+
+#'   aquifers" in the GUI). Set to `FALSE` to omit aquifer tables.
 #'
-#' @return An updated `qswat_project` object with HRU data.
+#' @return An updated `qswat_project` object with HRU data and the
+#'   groundwater settings stored in `project$use_gwflow` and
+#'   `project$use_aquifers`.
 #'
 #' @details
 #' The HRU creation process follows the QSWATPlus approach:
@@ -34,16 +75,16 @@
 #'     land use, soil, and slope values
 #'   \item Classify slope into the specified slope bands
 #'   \item Group cells by subbasin-landuse-soil-slope combinations
-#'   \item Apply area thresholds to filter small HRUs
+#'   \item Apply the selected HRU method to filter/reduce HRUs
 #'   \item Compute statistics (area, mean elevation, mean slope) for
-#'     each HRU
+#'     each retained HRU
 #' }
 #'
-#' The three threshold parameters work hierarchically (dominant method):
-#' land use threshold is applied first within each subbasin, then soil
-#' threshold within each remaining land use, then slope threshold within
-#' each remaining soil type. Areas from eliminated HRUs are
-#' redistributed proportionally.
+#' The `"filter_threshold"` method applies thresholds hierarchically:
+#' land use threshold within each subbasin, then soil threshold within
+#' each remaining land use, then slope threshold within each remaining
+#' soil. Areas from eliminated HRUs are redistributed proportionally to
+#' the surviving HRUs.
 #'
 #' @examples
 #' \dontrun{
@@ -51,8 +92,23 @@
 #' soil_lookup <- qswat_read_soil_lookup("soil_lookup.csv")
 #' slope_classes <- qswat_create_slope_classes(c(0, 5, 15, 9999))
 #'
+#' # Multiple HRUs with percentage thresholds (default)
 #' project <- qswat_create_hrus(project, lu_lookup, soil_lookup,
-#'                               slope_classes)
+#'                               slope_classes,
+#'                               hru_method = "filter_threshold",
+#'                               landuse_threshold = 20,
+#'                               soil_threshold = 10,
+#'                               slope_threshold = 10)
+#'
+#' # Single dominant HRU per subbasin
+#' project <- qswat_create_hrus(project, lu_lookup, soil_lookup,
+#'                               hru_method = "dominant_hru")
+#'
+#' # Target number of HRUs with gwflow enabled
+#' project <- qswat_create_hrus(project, lu_lookup, soil_lookup,
+#'                               hru_method = "target",
+#'                               target_hrus = 5L,
+#'                               use_gwflow = TRUE)
 #' }
 #'
 #' @export
@@ -60,10 +116,19 @@ qswat_create_hrus <- function(project,
                               landuse_lookup,
                               soil_lookup,
                               slope_classes = qswat_create_slope_classes(),
+                              hru_method = c("filter_threshold", "dominant_hru",
+                                             "dominant_luse", "filter_area",
+                                             "target"),
+                              threshold_type = c("percent", "area"),
                               landuse_threshold = 0,
                               soil_threshold = 0,
                               slope_threshold = 0,
-                              target_hrus = NULL) {
+                              area_threshold = 0,
+                              target_hrus = NULL,
+                              use_gwflow = FALSE,
+                              use_aquifers = TRUE) {
+  hru_method    <- match.arg(hru_method)
+  threshold_type <- match.arg(threshold_type)
   
   if (!inherits(project, "qswat_project")) {
     stop("'project' must be a qswat_project object.", call. = FALSE)
@@ -76,7 +141,7 @@ qswat_create_hrus <- function(project,
            call. = FALSE)
     }
   }
-  
+
   if (missing(soil_lookup)) {
     if (file.exists(project$soil_lookup)) {
       soil_lookup <- qswat_read_soil_lookup(project$soil_lookup)
@@ -84,6 +149,13 @@ qswat_create_hrus <- function(project,
       stop("Soil lookup not provided and not found in project.",
            call. = FALSE)
     }
+  }
+
+  # Validate hru_method-specific requirements
+  if (hru_method == "target" &&
+      (is.null(target_hrus) || !is.numeric(target_hrus) || target_hrus < 1)) {
+    stop("'target_hrus' must be a positive integer when hru_method = 'target'.",
+         call. = FALSE)
   }
   
   # Load rasters
@@ -179,14 +251,31 @@ qswat_create_hrus <- function(project,
   # Re-aggregate properly
   hru_data <- .aggregate_hrus(cell_data, cell_area)
   
-  # Apply threshold filtering
-  if (landuse_threshold > 0 || soil_threshold > 0 || slope_threshold > 0) {
-    hru_data <- .apply_thresholds(hru_data, landuse_threshold,
-                                  soil_threshold, slope_threshold)
-  }
-  
-  # Apply target HRU filtering
-  if (!is.null(target_hrus) && target_hrus > 0) {
+  # Apply HRU method to filter/reduce HRUs
+  hru_data <- switch(hru_method,
+    dominant_hru = .apply_dominant_hru(hru_data),
+    dominant_luse = .apply_dominant_luse(hru_data),
+    filter_threshold = {
+      if (landuse_threshold > 0 || soil_threshold > 0 || slope_threshold > 0) {
+        .apply_thresholds(hru_data, landuse_threshold,
+                          soil_threshold, slope_threshold,
+                          by_area = (threshold_type == "area"))
+      } else {
+        hru_data
+      }
+    },
+    filter_area = {
+      if (area_threshold > 0) {
+        .apply_area_filter(hru_data, area_threshold)
+      } else {
+        hru_data
+      }
+    },
+    target = .apply_target_filter(hru_data, target_hrus)
+  )
+
+  # Apply target HRU filtering (legacy path kept for backward compat)
+  if (hru_method != "target" && !is.null(target_hrus) && target_hrus > 0) {
     hru_data <- .apply_target_filter(hru_data, target_hrus)
   }
   
@@ -199,7 +288,9 @@ qswat_create_hrus <- function(project,
   project$hru_data <- hru_data
   project$basin_data <- basin_data
   project$slope_classes <- slope_classes
-  
+  project$use_gwflow <- isTRUE(use_gwflow)
+  project$use_aquifers <- isTRUE(use_aquifers)
+
   message("Created ", nrow(hru_data), " HRUs across ",
           length(unique(hru_data$subbasin)), " subbasins")
   
@@ -316,24 +407,29 @@ qswat_create_hrus <- function(project,
 
 #' Apply Dominant Area Thresholds
 #' @noRd
-.apply_thresholds <- function(hru_data, lu_thresh, soil_thresh, slope_thresh) {
+.apply_thresholds <- function(hru_data, lu_thresh, soil_thresh, slope_thresh,
+                              by_area = FALSE) {
   subbasins <- unique(hru_data$subbasin)
   result_list <- list()
-  
+
   for (sub in subbasins) {
     sub_data <- hru_data[hru_data$subbasin == sub, ]
     sub_area <- sum(sub_data$area_ha)
-    
+
     if (sub_area == 0) next
-    
+
     # Apply landuse threshold
     if (lu_thresh > 0) {
       lu_areas <- tapply(sub_data$area_ha, sub_data$landuse, sum)
-      lu_pct <- lu_areas / sub_area * 100
-      keep_lu <- names(lu_pct[lu_pct >= lu_thresh])
+      if (by_area) {
+        keep_lu <- names(lu_areas[lu_areas >= lu_thresh])
+      } else {
+        lu_pct <- lu_areas / sub_area * 100
+        keep_lu <- names(lu_pct[lu_pct >= lu_thresh])
+      }
       sub_data <- sub_data[sub_data$landuse %in% keep_lu, ]
     }
-    
+
     # Apply soil threshold (within each landuse)
     if (soil_thresh > 0 && nrow(sub_data) > 0) {
       keep_rows <- logical(nrow(sub_data))
@@ -342,13 +438,17 @@ qswat_create_hrus <- function(project,
         lu_area <- sum(sub_data$area_ha[lu_idx])
         soil_areas <- tapply(sub_data$area_ha[lu_idx],
                              sub_data$soil[lu_idx], sum)
-        soil_pct <- soil_areas / lu_area * 100
-        keep_soil <- names(soil_pct[soil_pct >= soil_thresh])
+        if (by_area) {
+          keep_soil <- names(soil_areas[soil_areas >= soil_thresh])
+        } else {
+          soil_pct <- soil_areas / lu_area * 100
+          keep_soil <- names(soil_pct[soil_pct >= soil_thresh])
+        }
         keep_rows[lu_idx] <- sub_data$soil[lu_idx] %in% keep_soil
       }
       sub_data <- sub_data[keep_rows, ]
     }
-    
+
     # Apply slope threshold (within each landuse-soil combo)
     if (slope_thresh > 0 && nrow(sub_data) > 0) {
       keep_rows <- logical(nrow(sub_data))
@@ -358,24 +458,82 @@ qswat_create_hrus <- function(project,
         c_area <- sum(sub_data$area_ha[c_idx])
         slope_areas <- tapply(sub_data$area_ha[c_idx],
                               sub_data$slope_class[c_idx], sum)
-        slope_pct <- slope_areas / c_area * 100
-        keep_slope <- names(slope_pct[slope_pct >= slope_thresh])
+        if (by_area) {
+          keep_slope <- names(slope_areas[slope_areas >= slope_thresh])
+        } else {
+          slope_pct <- slope_areas / c_area * 100
+          keep_slope <- names(slope_pct[slope_pct >= slope_thresh])
+        }
         keep_rows[c_idx] <- as.character(sub_data$slope_class[c_idx]) %in%
           keep_slope
       }
       sub_data <- sub_data[keep_rows, ]
     }
-    
+
     if (nrow(sub_data) > 0) {
       result_list[[length(result_list) + 1]] <- sub_data
     }
   }
-  
+
   if (length(result_list) == 0) {
     stop("All HRUs were eliminated by thresholds. Use lower threshold values.",
          call. = FALSE)
   }
-  
+
+  do.call(rbind, result_list)
+}
+
+
+#' Apply Minimum-Area Filter (filter_area method)
+#' @noRd
+.apply_area_filter <- function(hru_data, area_threshold) {
+  kept <- hru_data[hru_data$area_ha >= area_threshold, ]
+  if (nrow(kept) == 0) {
+    stop("All HRUs were eliminated by the area threshold. Use a smaller value.",
+         call. = FALSE)
+  }
+  kept
+}
+
+
+#' Select Single Dominant HRU Per Subbasin
+#'
+#' Keeps only the HRU with the largest area in each subbasin.
+#' @noRd
+.apply_dominant_hru <- function(hru_data) {
+  subbasins <- unique(hru_data$subbasin)
+  result_list <- lapply(subbasins, function(sub) {
+    sub_data <- hru_data[hru_data$subbasin == sub, ]
+    sub_data[which.max(sub_data$area_ha), , drop = FALSE]
+  })
+  do.call(rbind, result_list)
+}
+
+
+#' Select Single HRU from Dominant Landuse/Soil/Slope Per Subbasin
+#'
+#' For each subbasin selects the dominant land use, then within that
+#' land use the dominant soil, and within that soil the dominant slope
+#' class.  The resulting three-way combination forms a single HRU.
+#' @noRd
+.apply_dominant_luse <- function(hru_data) {
+  subbasins <- unique(hru_data$subbasin)
+  result_list <- lapply(subbasins, function(sub) {
+    sub_data <- hru_data[hru_data$subbasin == sub, ]
+
+    # Dominant landuse by area
+    lu_areas <- tapply(sub_data$area_ha, sub_data$landuse, sum)
+    dom_lu <- names(which.max(lu_areas))
+    lu_data <- sub_data[sub_data$landuse == dom_lu, ]
+
+    # Dominant soil within dominant landuse
+    soil_areas <- tapply(lu_data$area_ha, lu_data$soil, sum)
+    dom_soil <- names(which.max(soil_areas))
+    soil_data <- lu_data[lu_data$soil == dom_soil, ]
+
+    # Dominant slope class within dominant soil
+    soil_data[which.max(soil_data$area_ha), , drop = FALSE]
+  })
   do.call(rbind, result_list)
 }
 
