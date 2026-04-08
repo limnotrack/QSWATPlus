@@ -1866,8 +1866,6 @@ ensure_write_tables <- function(con) {
     if (n == 0L) DBI::dbExecute(con, sql)
   }
   
-  existing <- DBI::dbListTables(con)
-  
   # ==================================================================
   # 1. Simulation tables
   # ==================================================================
