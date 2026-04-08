@@ -1872,17 +1872,6 @@ ensure_write_tables <- function(con) {
   # 1. Simulation tables
   # ==================================================================
   create_if_missing("
-    CREATE TABLE IF NOT EXISTS time_sim (
-      id INTEGER PRIMARY KEY,
-      day_start INTEGER, yrc_start INTEGER,
-      day_end   INTEGER, yrc_end   INTEGER,
-      step INTEGER DEFAULT 0
-    )")
-  insert_if_empty("time_sim",
-                  "INSERT INTO time_sim (day_start, yrc_start, day_end, yrc_end, step)
-     VALUES (0, 1980, 0, 1985, 0)")
-  
-  create_if_missing("
     CREATE TABLE IF NOT EXISTS print_prt (
       id INTEGER PRIMARY KEY,
       nyskip INTEGER, day_start INTEGER, yrc_start INTEGER,
@@ -1940,41 +1929,6 @@ ensure_write_tables <- function(con) {
       stringsAsFactors = FALSE)
     DBI::dbWriteTable(con, "print_prt_object", rows, append = TRUE)
   }
-  
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS object_prt (
-      id INTEGER PRIMARY KEY,
-      ob_typ TEXT, ob_typ_no INTEGER, hyd_typ TEXT, filename TEXT
-    )")
-  
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS object_cnt (
-      id INTEGER PRIMARY KEY,
-      name TEXT,
-      obj INTEGER DEFAULT 0, hru INTEGER DEFAULT 0,
-      lhru INTEGER DEFAULT 0, rtu INTEGER DEFAULT 0,
-      mfl INTEGER DEFAULT 0, aqu INTEGER DEFAULT 0,
-      cha INTEGER DEFAULT 0, res INTEGER DEFAULT 0,
-      rec INTEGER DEFAULT 0, exco INTEGER DEFAULT 0,
-      dlr INTEGER DEFAULT 0, can INTEGER DEFAULT 0,
-      pmp INTEGER DEFAULT 0, out INTEGER DEFAULT 0,
-      lcha INTEGER DEFAULT 0, aqu2d INTEGER DEFAULT 0,
-      hrd INTEGER DEFAULT 0, wro INTEGER DEFAULT 0
-    )")
-  
-  cfg_name <- tryCatch(
-    DBI::dbGetQuery(con, "SELECT project_name FROM project_config LIMIT 1")$project_name,
-    error = function(e) "default")
-  if (is.null(cfg_name) || is.na(cfg_name) || cfg_name == "") cfg_name <- "default"
-  insert_if_empty("object_cnt", paste0(
-    "INSERT INTO object_cnt (name) VALUES ('", cfg_name, "')"))
-  
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS constituents_cs (
-      id INTEGER PRIMARY KEY,
-      name TEXT, pest_coms TEXT, path_coms TEXT,
-      hmet_coms TEXT, salt_coms TEXT
-    )")
   
   # ==================================================================
   # 2. Basin tables
@@ -2041,8 +1995,8 @@ ensure_write_tables <- function(con) {
              50.0, 400.0, 0.0, 0)")
   
   # ==================================================================
-  # 3. Climate tables (weather_sta_cli / weather_wgn_cli already in
-  #    create_project_db; just make sure they exist)
+  # 3. Climate tables (weather_sta_cli already in create_project_db;
+  #    just make sure it exists)
   # ==================================================================
   create_if_missing("
     CREATE TABLE IF NOT EXISTS weather_sta_cli (
@@ -2052,322 +2006,6 @@ ensure_write_tables <- function(con) {
       pcp TEXT, tmp TEXT, slr TEXT, hmd TEXT, wnd TEXT, pet TEXT,
       atmo_dep TEXT, wgn_id INTEGER
     )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS weather_wgn_cli (
-      id INTEGER PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL,
-      lat REAL, lon REAL, elev REAL, rain_yrs REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS weather_wgn_cli_mon (
-      id INTEGER PRIMARY KEY,
-      weather_wgn_cli_id INTEGER NOT NULL,
-      month INTEGER NOT NULL,
-      tmp_max_ave REAL, tmp_min_ave REAL,
-      tmp_max_sd REAL, tmp_min_sd REAL,
-      pcp_ave REAL, pcp_sd REAL, pcp_skew REAL,
-      wet_dry REAL, wet_wet REAL, pcp_days REAL, pcp_hhr REAL,
-      slr_ave REAL, dew_ave REAL, wnd_ave REAL,
-      FOREIGN KEY (weather_wgn_cli_id) REFERENCES weather_wgn_cli(id)
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS weather_file (
-      id INTEGER PRIMARY KEY,
-      filename TEXT, type TEXT, lat REAL, lon REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS atmo_cli (
-      id INTEGER PRIMARY KEY,
-      filename TEXT, sim_sta_id INTEGER
-    )")
-  
-  # ==================================================================
-  # 4. Connection tables (13 types + their _con_out partners)
-  # ==================================================================
-  con_types <- c("hru", "hru_lte", "rout_unit", "modflow",
-                 "aquifer", "aquifer2d", "channel", "reservoir",
-                 "recall", "exco", "delratio", "outlet", "chandeg")
-  for (ct in con_types) {
-    tbl <- paste0(ct, "_con")
-    create_if_missing(paste0("
-      CREATE TABLE IF NOT EXISTS ", tbl, " (
-        id INTEGER PRIMARY KEY,
-        name TEXT, gis_id INTEGER, area REAL, lat REAL, lon REAL,
-        elev REAL, wst_id INTEGER, cst_id INTEGER,
-        ovfl INTEGER DEFAULT 0, rule INTEGER DEFAULT 0,
-        ob_typ TEXT, obj_id INTEGER
-      )"))
-    create_if_missing(paste0("
-      CREATE TABLE IF NOT EXISTS ", tbl, "_out (
-        id INTEGER PRIMARY KEY,
-        ", tbl, "_id INTEGER,
-        order_id INTEGER, obj_typ TEXT, obj_id INTEGER,
-        hyd_typ TEXT, frac REAL,
-        FOREIGN KEY (", tbl, "_id) REFERENCES ", tbl, "(id)
-      )"))
-  }
-  
-  # ==================================================================
-  # 5. Channel tables
-  # ==================================================================
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS initial_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      org_min_id INTEGER, pest_id INTEGER, path_id INTEGER,
-      hmet_id INTEGER, salt_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS channel_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      init_id INTEGER, hyd_id INTEGER, sed_id INTEGER, nut_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS hydrology_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      wd REAL, dp REAL, slp REAL, len REAL, mann REAL,
-      k REAL, erod_fact REAL, cov_fact REAL,
-      hc_cov REAL, eq_slp REAL, d50 REAL,
-      clay REAL, carbon REAL, dry_bd REAL,
-      side_slp REAL, bed_load REAL,
-      fps REAL, fpn REAL, n_conc REAL, p_conc REAL, p_bio REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS sediment_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      cha_cov INTEGER, bed_load REAL,
-      bank_erode REAL, channel_erode REAL,
-      shear_bank REAL, shear_bed REAL,
-      hc_erod REAL, hc_ht REAL, hc_len REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS nutrients_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      ptl_n REAL, ptl_p REAL, algae REAL,
-      bod REAL, cbod REAL, dis_ox REAL,
-      nh3_n REAL, no2_n REAL, no3_n REAL,
-      sol_p REAL, ch_onp REAL, ch_onn REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS channel_lte_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      hyd_id INTEGER, init_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS hyd_sed_lte_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      wd REAL, dp REAL, slp REAL, len REAL, mann REAL,
-      k REAL, cov_fact REAL, wd_rto REAL, eq_slp REAL, d50 REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS temperature_cha (
-      id INTEGER PRIMARY KEY, name TEXT,
-      lat REAL, lon REAL, elev REAL
-    )")
-  
-  # ==================================================================
-  # 6. Reservoir tables
-  # ==================================================================
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS initial_res (
-      id INTEGER PRIMARY KEY, name TEXT,
-      org_min_id INTEGER, pest_id INTEGER, path_id INTEGER,
-      hmet_id INTEGER, salt_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS reservoir_res (
-      id INTEGER PRIMARY KEY, name TEXT,
-      init_id INTEGER, hyd_id INTEGER, sed_id INTEGER, nut_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS hydrology_res (
-      id INTEGER PRIMARY KEY, name TEXT,
-      yr_op REAL, mon_op REAL, area_ps REAL,
-      vol_ps REAL, area_es REAL, vol_es REAL,
-      k REAL, evap_co REAL, shp_co1 REAL, shp_co2 REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS sediment_res (
-      id INTEGER PRIMARY KEY, name TEXT,
-      sed_stl REAL, velsetl_d50 REAL, velsetl_stl REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS nutrients_res (
-      id INTEGER PRIMARY KEY, name TEXT,
-      mid_start INTEGER, mid_end INTEGER,
-      mid_n_stl REAL, n_stl REAL, mid_p_stl REAL, p_stl REAL,
-      chla_co REAL, secchi_co REAL, theta_n REAL,
-      theta_p REAL, n_min_stl REAL, p_min_stl REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS weir_res (
-      id INTEGER PRIMARY KEY, name TEXT,
-      num_steps INTEGER, hyd_flo TEXT, hyd_flo2 TEXT
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS wetland_wet (
-      id INTEGER PRIMARY KEY, name TEXT,
-      init_id INTEGER, hyd_id INTEGER, sed_id INTEGER, nut_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS hydrology_wet (
-      id INTEGER PRIMARY KEY, name TEXT,
-      psa REAL, pdep REAL, esa REAL, edep REAL,
-      k REAL, evap REAL
-    )")
-  
-  # ==================================================================
-  # 7. Routing unit tables
-  # ==================================================================
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS rout_unit_def_con (
-      id INTEGER PRIMARY KEY, name TEXT, rtu_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS rout_unit_ele (
-      id INTEGER PRIMARY KEY, name TEXT,
-      rtu_id INTEGER, obj_id INTEGER, obj_typ TEXT, frac REAL,
-      dlr_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS rout_unit_rtu (
-      id INTEGER PRIMARY KEY, name TEXT,
-      topo_id INTEGER, field_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS rout_unit_dr (
-      id INTEGER PRIMARY KEY, name TEXT, dr_id INTEGER
-    )")
-  
-  # ==================================================================
-  # 8. HRU tables
-  # ==================================================================
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS hru_data_hru (
-      id INTEGER PRIMARY KEY, name TEXT,
-      topo_id INTEGER, hydro_id INTEGER, soil_id INTEGER,
-      lu_mgt_id INTEGER, soil_plant_ini_id INTEGER,
-      surf_stor TEXT, snow_id INTEGER, field_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS hru_lte_hru (
-      id INTEGER PRIMARY KEY, name TEXT,
-      cn2 REAL, usle_k REAL, usle_ls REAL, usle_p REAL,
-      ovn REAL, elev REAL, slope REAL, slope_len REAL,
-      lat REAL, perco REAL, eta REAL, pet REAL,
-      strsol REAL, strtmp REAL, sw REAL, awc REAL
-    )")
-  
-  # ==================================================================
-  # 9. DR (delivery ratio) tables
-  # ==================================================================
-  create_if_missing("CREATE TABLE IF NOT EXISTS delratio_del (
-    id INTEGER PRIMARY KEY, name TEXT, om_id INTEGER)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS dr_om_del (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS dr_pest_del (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS dr_path_del (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS dr_hmet_del (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS dr_salt_del (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  
-  # ==================================================================
-  # 10. Aquifer tables
-  # ==================================================================
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS initial_aqu (
-      id INTEGER PRIMARY KEY, name TEXT,
-      org_min_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS aquifer_aqu (
-      id INTEGER PRIMARY KEY, name TEXT,
-      init_id INTEGER, gw_flo REAL, dep_bot REAL,
-      dep_wt REAL, no3_n REAL, sol_p REAL,
-      ptl_n REAL, ptl_p REAL,
-      bf_max REAL, alpha_bf REAL, revap REAL,
-      rchg_dp REAL, spec_yld REAL, hl_no3n REAL,
-      flo_min REAL, revap_min REAL
-    )")
-  
-  # ==================================================================
-  # 11. Water rights
-  # ==================================================================
-  create_if_missing("CREATE TABLE IF NOT EXISTS water_allocation_wro (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS element_wro (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS define_wro (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  
-  # ==================================================================
-  # 12. Link tables
-  # ==================================================================
-  create_if_missing("CREATE TABLE IF NOT EXISTS chan_surf_lin (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS chan_aqu_lin (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  
-  # ==================================================================
-  # 13. Basin tables (already created above)
-  # ==================================================================
-  
-  # ==================================================================
-  # 14. Hydrology tables
-  # ==================================================================
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS hydrology_hyd (
-      id INTEGER PRIMARY KEY, name TEXT,
-      lat_ttime REAL, lat_sed REAL, can_max REAL,
-      esco REAL, epco REAL, orgn_enrich REAL,
-      orgp_enrich REAL, cn3_swf REAL,
-      bio_mix REAL, perco REAL, lat_orgn REAL,
-      lat_orgp REAL, harg_pet REAL,
-      latq_co REAL, cn2 REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS topography_hyd (
-      id INTEGER PRIMARY KEY, name TEXT,
-      slp REAL, slp_len REAL, lat_len REAL,
-      dist_cha REAL, depos REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS field_fld (
-      id INTEGER PRIMARY KEY, name TEXT,
-      len REAL, wd REAL, ang REAL
-    )")
-  
-  # ==================================================================
-  # 15. EXCO tables
-  # ==================================================================
-  create_if_missing("CREATE TABLE IF NOT EXISTS exco_exc (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS exco_om_exc (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS exco_pest_exc (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS exco_path_exc (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS exco_hmet_exc (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS exco_salt_exc (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  
-  # ==================================================================
-  # 16. Recall tables
-  # ==================================================================
-  create_if_missing("CREATE TABLE IF NOT EXISTS recall_rec (
-    id INTEGER PRIMARY KEY, name TEXT, rec_typ INTEGER)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS recall_dat (
-    id INTEGER PRIMARY KEY, recall_rec_id INTEGER,
-    yr INTEGER, t_step INTEGER,
-    flo REAL, sed REAL, orgn REAL, sedp REAL,
-    no3 REAL, solp REAL, chla REAL, nh3 REAL,
-    no2 REAL, cbod REAL, dox REAL, sand REAL,
-    silt REAL, clay REAL, sag REAL, lag REAL,
-    gravel REAL, tmp REAL)")
   
   # ==================================================================
   # 17. Structural tables
@@ -2395,10 +2033,6 @@ ensure_write_tables <- function(con) {
   create_if_missing("CREATE TABLE IF NOT EXISTS pesticide_pst (
     id INTEGER PRIMARY KEY, name TEXT)")
   create_if_missing("CREATE TABLE IF NOT EXISTS pathogens_pth (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS metals_mtl (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS salts_slt (
     id INTEGER PRIMARY KEY, name TEXT)")
   create_if_missing("CREATE TABLE IF NOT EXISTS urban_urb (
     id INTEGER PRIMARY KEY, name TEXT)")
@@ -2442,47 +2076,11 @@ ensure_write_tables <- function(con) {
   # ==================================================================
   create_if_missing("CREATE TABLE IF NOT EXISTS cal_parms_cal (
     id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS calibration_cal (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS codes_sft (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS wb_parms_sft (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS water_balance_sft (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS ch_sed_budget_sft (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS ch_sed_parms_sft (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS plant_parms_sft (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS plant_gro_sft (
-    id INTEGER PRIMARY KEY, name TEXT)")
   
   # ==================================================================
   # 22. Initial condition tables
   # ==================================================================
   create_if_missing("CREATE TABLE IF NOT EXISTS plant_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS soil_plant_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS om_water_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS pest_hru_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS pest_water_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS path_hru_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS path_water_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS hmet_hru_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS hmet_water_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS salt_hru_ini (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS salt_water_ini (
     id INTEGER PRIMARY KEY, name TEXT)")
   
   # ==================================================================
@@ -2497,8 +2095,6 @@ ensure_write_tables <- function(con) {
     perc_crk   REAL NOT NULL,
     texture    TEXT,
     description TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS nutrients_sol (
-    id INTEGER PRIMARY KEY, name TEXT, exp_co REAL)")
   create_if_missing("CREATE TABLE IF NOT EXISTS soils_lte_sol (
     id INTEGER PRIMARY KEY, name TEXT)")
   
@@ -2523,124 +2119,6 @@ ensure_write_tables <- function(con) {
       act_typ TEXT, obj TEXT, obj_num INTEGER,
       name TEXT, option TEXT, const1 REAL,
       const2 REAL, fp TEXT
-    )")
-  
-  # ==================================================================
-  # 25. Region tables
-  # ==================================================================
-  region_tbls <- c("ls_unit_ele", "ls_unit_def", "ls_reg_ele", "ls_reg_def",
-                   "ch_catunit_ele", "ch_catunit_def", "ch_reg_def",
-                   "aqu_catunit_ele", "aqu_catunit_def", "aqu_reg_def",
-                   "res_catunit_ele", "res_catunit_def", "res_reg_def",
-                   "rec_catunit_ele", "rec_catunit_def", "rec_reg_def")
-  for (rt in region_tbls) {
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS ", rt, " (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-  }
-  
-  # ==================================================================
-  # 26. Herd tables (stub - matching Python write_herd() which is pass)
-  # ==================================================================
-  create_if_missing("CREATE TABLE IF NOT EXISTS animal_hrd (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS herd_hrd (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS ranch_hrd (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  
-  # ==================================================================
-  # 27. gwflow tables (groundwater flow module)
-  # ==================================================================
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_base (
-      id INTEGER PRIMARY KEY,
-      cell_size REAL, row_count INTEGER, col_count INTEGER,
-      boundary_conditions INTEGER DEFAULT 2,
-      recharge INTEGER DEFAULT 1, soil_transfer INTEGER DEFAULT 0,
-      saturation_excess INTEGER DEFAULT 0, external_pumping INTEGER DEFAULT 0,
-      tile_drainage INTEGER DEFAULT 0, reservoir_exchange INTEGER DEFAULT 0,
-      wetland_exchange INTEGER DEFAULT 0, floodplain_exchange INTEGER DEFAULT 0,
-      canal_seepage INTEGER DEFAULT 0, solute_transport INTEGER DEFAULT 0,
-      timestep_balance REAL DEFAULT 1.0,
-      daily_output INTEGER DEFAULT 0, annual_output INTEGER DEFAULT 0,
-      aa_output INTEGER DEFAULT 0,
-      recharge_delay REAL DEFAULT 0,
-      river_depth REAL DEFAULT 0,
-      daily_output_row INTEGER DEFAULT 0, daily_output_col INTEGER DEFAULT 0,
-      resbed_thickness REAL DEFAULT 0, resbed_k REAL DEFAULT 0,
-      wet_thickness REAL DEFAULT 0,
-      tile_depth REAL DEFAULT 0, tile_area REAL DEFAULT 0,
-      tile_k REAL DEFAULT 0, tile_groups INTEGER DEFAULT 0,
-      transport_steps INTEGER DEFAULT 1, disp_coef REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_zone (
-      id INTEGER PRIMARY KEY, zone_id INTEGER,
-      aquifer_k REAL, specific_yield REAL,
-      streambed_k REAL, streambed_thickness REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_grid (
-      id INTEGER PRIMARY KEY, cell_id INTEGER,
-      status INTEGER DEFAULT 0, elevation REAL DEFAULT 0,
-      aquifer_thickness REAL DEFAULT 0, zone INTEGER DEFAULT 0,
-      extinction_depth REAL DEFAULT 0, initial_head REAL DEFAULT 0,
-      tile INTEGER DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_out_days (
-      id INTEGER PRIMARY KEY, year INTEGER, jday INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_obs_locs (
-      id INTEGER PRIMARY KEY, cell_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_solutes (
-      id INTEGER PRIMARY KEY, solute_name TEXT,
-      sorption REAL DEFAULT 0, rate_const REAL DEFAULT 0,
-      canal_irr REAL DEFAULT 0,
-      init_data TEXT DEFAULT 'single', init_conc REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_init_conc (
-      id INTEGER PRIMARY KEY, cell_id INTEGER,
-      init_no3 REAL DEFAULT 0, init_p REAL DEFAULT 0,
-      init_so4 REAL DEFAULT 0, init_ca REAL DEFAULT 0,
-      init_mg REAL DEFAULT 0, init_na REAL DEFAULT 0,
-      init_k REAL DEFAULT 0, init_cl REAL DEFAULT 0,
-      init_co3 REAL DEFAULT 0, init_hco3 REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_hrucell (
-      id INTEGER PRIMARY KEY, cell_id INTEGER, hru INTEGER,
-      area_m2 REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_fpcell (
-      id INTEGER PRIMARY KEY, cell_id INTEGER, channel_id INTEGER,
-      area_m2 REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_rivcell (
-      id INTEGER PRIMARY KEY, cell_id INTEGER, channel INTEGER,
-      length_m REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_lsucell (
-      id INTEGER PRIMARY KEY, cell_id INTEGER, lsu INTEGER,
-      area_m2 REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_rescell (
-      id INTEGER PRIMARY KEY, cell_id INTEGER, res_id INTEGER,
-      res_stage REAL DEFAULT 0
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS gwflow_wetland (
-      id INTEGER PRIMARY KEY, wet_id INTEGER, thickness REAL DEFAULT 0
     )")
   
   # ==================================================================
@@ -2758,36 +2236,14 @@ ensure_write_tables <- function(con) {
   }
   
   # ==================================================================
-  # 28. Missing _item / _elem / sub-tables required by Python QSWAT+
+  # 28. Missing _item / sub-tables required by Python QSWAT+
   # ==================================================================
   
-  # -- Initial condition _item tables --
-  ini_item_tables <- c(
-    "plant_ini_item", "pest_hru_ini_item", "pest_water_ini_item",
-    "path_hru_ini_item", "path_water_ini_item",
-    "hmet_hru_ini_item", "hmet_water_ini_item",
-    "salt_hru_ini_item", "salt_water_ini_item"
-  )
-  for (tbl in ini_item_tables) {
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS ", tbl, " (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-  }
-  
-  # -- Region _elem tables --
-  region_elem_tables <- c(
-    "aqu_catunit_def_elem", "aqu_reg_def_elem",
-    "ch_catunit_def_elem", "ch_reg_def_elem",
-    "res_catunit_def_elem", "res_reg_def_elem",
-    "rec_catunit_def_elem", "rec_reg_def_elem"
-  )
-  for (tbl in region_elem_tables) {
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS ", tbl, " (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-  }
+  # -- plant_ini_item table --
+  create_if_missing("
+    CREATE TABLE IF NOT EXISTS plant_ini_item (
+       id INTEGER PRIMARY KEY, name TEXT
+     )")
   
   # -- Decision table sub-tables --
   create_if_missing("
@@ -2798,82 +2254,6 @@ ensure_write_tables <- function(con) {
     CREATE TABLE IF NOT EXISTS d_table_dtl_act_out (
       id INTEGER PRIMARY KEY, act_id INTEGER, name TEXT
     )")
-  
-  # -- Soft calibration _item tables --
-  sft_item_tables <- c(
-    "ch_sed_budget_sft_item", "plant_gro_sft_item",
-    "plant_parms_sft_item", "water_balance_sft_item"
-  )
-  for (tbl in sft_item_tables) {
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS ", tbl, " (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-  }
-  
-  # -- Calibration sub-tables --
-  create_if_missing("CREATE TABLE IF NOT EXISTS calibration_cal_cond (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS calibration_cal_elem (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  
-  # -- Climate sub-tables --
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS atmo_cli_sta (
-      id INTEGER PRIMARY KEY, atmo_cli_id INTEGER,
-      weather_sta_cli_id INTEGER
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS atmo_cli_sta_value (
-      id INTEGER PRIMARY KEY, sta_id INTEGER,
-      timestep INTEGER, nh4_wet REAL, no3_wet REAL,
-      nh4_dry REAL, no3_dry REAL
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS weather_sta_cli_scale (
-      id INTEGER PRIMARY KEY, weather_sta_cli_id INTEGER,
-      name TEXT
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS wind_dir_cli (
-      id INTEGER PRIMARY KEY, name TEXT
-    )")
-  create_if_missing("
-    CREATE TABLE IF NOT EXISTS print_prt_aa_int (
-      id INTEGER PRIMARY KEY, print_prt_id INTEGER, aa_int_cnt INTEGER
-    )")
-  
-  # -- DR (delivery ratio) _col and _val tables --
-  dr_types <- c("pest", "path", "hmet", "salt")
-  for (dt in dr_types) {
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS dr_", dt, "_col (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS dr_", dt, "_val (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-  }
-  
-  # -- EXCO _col and _val tables --
-  exco_types <- c("pest", "path", "hmet", "salt")
-  for (et in exco_types) {
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS exco_", et, "_col (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS exco_", et, "_val (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-  }
-  
-  # -- Link _ob tables --
-  create_if_missing("CREATE TABLE IF NOT EXISTS chan_aqu_lin_ob (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS chan_surf_lin_ob (
-    id INTEGER PRIMARY KEY, name TEXT)")
   
   # -- Management sub-tables --
   create_if_missing("CREATE TABLE IF NOT EXISTS management_sch_auto (
@@ -2901,33 +2281,6 @@ ensure_write_tables <- function(con) {
     caco3     REAL,
     ph        REAL,
     FOREIGN KEY (soil_id) REFERENCES soils_sol (id) ON DELETE CASCADE)")
-  
-  # -- Landuse lookup table --
-  create_if_missing("CREATE TABLE IF NOT EXISTS landuse_lookup (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  
-  # -- Salt module tables --
-  salt_tables <- c(
-    "salt_module", "salt_aqu_ini", "salt_atmo_cli",
-    "salt_channel_ini", "salt_fertilizer_frt", "salt_hru_ini_cs",
-    "salt_irrigation", "salt_plants", "salt_plants_flags",
-    "salt_recall_dat", "salt_recall_rec", "salt_res_ini",
-    "salt_road", "salt_urban"
-  )
-  for (tbl in salt_tables) {
-    create_if_missing(paste0(
-      "CREATE TABLE IF NOT EXISTS ", tbl, " (
-         id INTEGER PRIMARY KEY, name TEXT
-       )"))
-  }
-  
-  # -- Water allocation sub-tables --
-  create_if_missing("CREATE TABLE IF NOT EXISTS water_allocation_dmd_ob (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS water_allocation_dmd_ob_src (
-    id INTEGER PRIMARY KEY, name TEXT)")
-  create_if_missing("CREATE TABLE IF NOT EXISTS water_allocation_src_ob (
-    id INTEGER PRIMARY KEY, name TEXT)")
   
   invisible(NULL)
 }
