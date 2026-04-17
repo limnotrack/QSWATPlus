@@ -686,10 +686,10 @@ qswat_populate_gwflow_gis <- function(project,
   grid_sf <- sf::st_sf(geometry = grid_geom)
   sf::st_crs(grid_sf) <- proj_crs
 
-  # Assign IDs in raster order: left-to-right, top-to-bottom (matching the
-  # Python fishnet function).  sf::st_make_grid produces cells in column-major
-  # order (bottom-to-top within each column, then left-to-right across
-  # columns).  For cell k (0-indexed):
+  # Convert from sf's column-major order (bottom-to-top within each column,
+  # left-to-right across columns) to row-major raster order (left-to-right
+  # within each row, top-to-bottom across rows) matching the Python fishnet.
+  # For cell k (0-indexed in sf column-major order):
   #   column index  = k %/% n_rows
   #   row from top  = n_rows - 1 - (k %% n_rows)
   #   raster ID     = row_from_top * n_cols + col + 1
@@ -733,10 +733,11 @@ qswat_populate_gwflow_gis <- function(project,
                                   proj_crs) {
   thick_rast <- terra::rast(thickness_file)
 
-  # Fill NoData holes with a focal mean, replicating Python's
-  # gdal.FillNodata(maxSearchDist = 5).  A first pass with a 3×3 window fills
-  # isolated single-pixel gaps; a second pass with a 5×5 window covers larger
-  # holes up to ~2 pixels from valid data, matching the search distance of 5.
+  # Fill NoData holes with focal mean to replicate Python's
+  # gdal.FillNodata(maxSearchDist = 5).  Two passes are required:
+  #   pass 1 (3x3): fills isolated single-pixel gaps;
+  #   pass 2 (5x5): extends coverage to ~2 pixels from valid data,
+  #                 approximating GDAL's maxSearchDist = 5 pixels.
   thick_rast <- terra::focal(thick_rast, w = 3, fun = mean,
                                na.rm = TRUE, na.policy = "only")
   thick_rast <- terra::focal(thick_rast, w = 5, fun = mean,

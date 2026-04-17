@@ -508,6 +508,7 @@ test_that("qswat_populate_gwflow_gis populates gwflow_hrucell when recharge is 1
   skip_if_not_installed("sf")
   skip_if_not_installed("terra")
 
+  # Case 1: recharge = 3 (both HRU + LSU)
   tmpdir <- tempfile("gwhru_")
   dir.create(tmpdir)
   on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
@@ -531,6 +532,35 @@ test_that("qswat_populate_gwflow_gis populates gwflow_hrucell when recharge is 1
   hru <- DBI::dbGetQuery(con, "SELECT * FROM gwflow_hrucell")
   expect_gt(nrow(hru), 0L)
   expect_true(all(hru$area_m2 > 0))
+  DBI::dbDisconnect(con)
+
+  # Case 2: recharge = 1 (HRU-only; gwflow_hrucell should also be populated)
+  tmpdir2 <- tempfile("gwhru1_")
+  dir.create(tmpdir2)
+  on.exit(unlink(tmpdir2, recursive = TRUE), add = TRUE)
+
+  res2     <- .make_gwflow_test_project(tmpdir2, cell_size = 200L,
+                                         use_lsu_recharge = FALSE)  # recharge = 1
+  project2 <- res2$project
+  cfg2     <- res2$cfg
+
+  qswat_populate_gwflow_gis(
+    project           = project2,
+    gwflow_config     = cfg2,
+    conductivity_file = res2$k_file,
+    thickness_file    = res2$thick_file,
+    overwrite         = TRUE
+  )
+
+  con2 <- DBI::dbConnect(RSQLite::SQLite(), project2$db_file)
+  on.exit(DBI::dbDisconnect(con2), add = TRUE)
+
+  hru2 <- DBI::dbGetQuery(con2, "SELECT * FROM gwflow_hrucell")
+  expect_gt(nrow(hru2), 0L)
+
+  # With recharge = 1, gwflow_lsucell should be empty
+  lsu2 <- DBI::dbGetQuery(con2, "SELECT * FROM gwflow_lsucell")
+  expect_equal(nrow(lsu2), 0L)
 })
 
 
