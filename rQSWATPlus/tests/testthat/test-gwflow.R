@@ -338,11 +338,12 @@ test_that("qswat_setup_gwflow validates project object", {
 
   project <- qswat_write_database(project, db_file = db_file, overwrite = TRUE)
 
-  # gwflow config with small cells so the 1-km basin produces a 5×5 grid
+  # gwflow config with small cells so the 1-km basin produces a 5x5 grid
   cfg              <- qswat_read_gwflow_config()
   cfg$cell_size    <- cell_size
-  # LSU-based recharge (2) includes gwflow_lsucell
-  cfg$hruorlsu_recharge <- if (use_lsu_recharge) 3L else 2L
+  # recharge = 3 (both HRU + LSU) when use_lsu_recharge = TRUE,
+  # recharge = 1 (HRU only)       when use_lsu_recharge = FALSE
+  cfg$hruorlsu_recharge <- if (use_lsu_recharge) 3L else 1L
 
   project <- qswat_setup_gwflow(project, gwflow_config = cfg, overwrite = TRUE)
 

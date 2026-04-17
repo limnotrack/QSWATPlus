@@ -686,13 +686,17 @@ qswat_populate_gwflow_gis <- function(project,
   grid_sf <- sf::st_sf(geometry = grid_geom)
   sf::st_crs(grid_sf) <- proj_crs
 
-  # Assign IDs in raster order: left-to-right, top-to-bottom.
-  # sf::st_make_grid uses column-major order (bottom-to-top within each
-  # column), so we re-sort by centroid: Y descending, X ascending.
-  centers    <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(grid_sf)))
-  sort_order <- order(-centers[, "Y"], centers[, "X"])
-  grid_sf$Id <- integer(nrow(grid_sf))
-  grid_sf$Id[sort_order] <- seq_len(nrow(grid_sf))
+  # Assign IDs in raster order: left-to-right, top-to-bottom (matching the
+  # Python fishnet function).  sf::st_make_grid produces cells in column-major
+  # order (bottom-to-top within each column, then left-to-right across
+  # columns).  For cell k (0-indexed):
+  #   column index  = k %/% n_rows
+  #   row from top  = n_rows - 1 - (k %% n_rows)
+  #   raster ID     = row_from_top * n_cols + col + 1
+  k          <- seq_len(nrow(grid_sf)) - 1L
+  col_idx    <- k %/% n_rows
+  row_top    <- (n_rows - 1L) - (k %% n_rows)
+  grid_sf$Id <- row_top * n_cols + col_idx + 1L
 
   list(
     grid   = grid_sf,
@@ -729,7 +733,10 @@ qswat_populate_gwflow_gis <- function(project,
                                   proj_crs) {
   thick_rast <- terra::rast(thickness_file)
 
-  # Fill NoData with focal mean; two passes match Python's maxSearchDist = 5
+  # Fill NoData holes with a focal mean, replicating Python's
+  # gdal.FillNodata(maxSearchDist = 5).  A first pass with a 3×3 window fills
+  # isolated single-pixel gaps; a second pass with a 5×5 window covers larger
+  # holes up to ~2 pixels from valid data, matching the search distance of 5.
   thick_rast <- terra::focal(thick_rast, w = 3, fun = mean,
                                na.rm = TRUE, na.policy = "only")
   thick_rast <- terra::focal(thick_rast, w = 5, fun = mean,
@@ -816,8 +823,8 @@ qswat_populate_gwflow_gis <- function(project,
       # Hydraulic conductivity in m/day:
       #   K = k_intrinsic * rho * g / mu * 86400
       #   where rho = 1000 kg/m^3, g = 9.81 m/s^2, mu = 0.001 Pa.s
-      log_k       <- k_sf$logK_Ferr_ / 100          # log10(m^2)
-      k_intrinsic <- 10^log_k                         # m^2
+      log_k       <- k_sf$logK_Ferr_ / 100  # log10(m^2)
+      k_intrinsic <- 10^log_k              # m^2
       k_sf$K_mday <- k_intrinsic * 1000 * 9.81 / 0.001 * 86400
       conductivity_column <- "K_mday"
     } else {
