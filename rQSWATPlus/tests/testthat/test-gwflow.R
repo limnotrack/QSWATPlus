@@ -249,3 +249,418 @@ test_that("qswat_setup_gwflow validates project object", {
     "No database found"
   )
 })
+
+# ==============================================================================
+# helpers shared by qswat_populate_gwflow_gis tests
+# ==============================================================================
+
+# Build a minimal qswat_project with synthetic spatial data for gwflow GIS tests
+.make_gwflow_test_project <- function(tmpdir, cell_size = 200L,
+                                       use_lsu_recharge = TRUE) {
+  # 1-km x 1-km square basin in a local Cartesian CRS (no EPSG authority)
+  basin_coords <- matrix(
+    c(0, 0,  1000, 0,  1000, 1000,  0, 1000,  0, 0),
+    ncol = 2, byrow = TRUE
+  )
+  lsu_sf <- sf::st_as_sf(
+    data.frame(subbasin = 1L),
+    geometry = sf::st_sfc(sf::st_polygon(list(basin_coords))),
+    crs = 32632   # WGS 84 / UTM zone 32N (metres)
+  )
+
+  # HRU polygon covering the entire basin
+  hru_sf <- sf::st_as_sf(
+    data.frame(hru_id = 1L, subbasin = 1L),
+    geometry = sf::st_sfc(sf::st_polygon(list(basin_coords))),
+    crs = 32632
+  )
+
+  # Synthetic DEM raster: flat at 500 m
+  dem_file <- file.path(tmpdir, "dem.tif")
+  dem_rast <- terra::rast(
+    nrows = 100, ncols = 100,
+    xmin  = 0,   xmax  = 1000,
+    ymin  = 0,   ymax  = 1000,
+    crs   = "EPSG:32632",
+    vals  = 500
+  )
+  terra::writeRaster(dem_rast, dem_file, overwrite = TRUE)
+
+  # Synthetic thickness raster: 2000 (units = cm, so 20 m after *0.01)
+  thick_file <- file.path(tmpdir, "thickness.tif")
+  thick_rast <- terra::rast(dem_rast)
+  terra::values(thick_rast) <- 2000
+  terra::writeRaster(thick_rast, thick_file, overwrite = TRUE)
+
+  # Conductivity shapefile: GLHYMPS format, one polygon covering the basin
+  # logK_Ferr_ = -1100 → logK = -11 → K ≈ 0.085 m/day
+  k_sf <- sf::st_as_sf(
+    data.frame(logK_Ferr_ = -1100L),
+    geometry = sf::st_sfc(sf::st_polygon(list(
+      matrix(c(-100, -100,  1100, -100,  1100, 1100,
+               -100,  1100, -100, -100),
+             ncol = 2, byrow = TRUE)
+    ))),
+    crs = 32632
+  )
+  k_file <- file.path(tmpdir, "conductivity.shp")
+  sf::st_write(k_sf, k_file, quiet = TRUE)
+
+  # Streams: single line running east-west through the middle of the basin
+  stream_sf <- sf::st_as_sf(
+    data.frame(LINKNO = 1L, DSLINKNO = -1L, WSNO = 1L,
+               strmOrder = 1L, Length = 1000),
+    geometry = sf::st_sfc(sf::st_linestring(
+      matrix(c(0, 500,  1000, 500), ncol = 2, byrow = TRUE)
+    )),
+    crs = 32632
+  )
+
+  db_file <- file.path(tmpdir, "project.sqlite")
+
+  project <- structure(
+    list(
+      project_dir     = tmpdir,
+      dem_file        = dem_file,
+      lsu_sf          = lsu_sf,
+      hru_sf          = hru_sf,
+      streams_sf      = stream_sf,
+      stream_topology = data.frame(
+        LINKNO = 1L, DSLINKNO = -1L, WSNO = 1L,
+        strmOrder = 1L, Length = 1000,
+        stringsAsFactors = FALSE
+      ),
+      hru_data = data.frame(
+        hru_id = 1L, subbasin = 1L, landuse = "AGRL", soil = "TX047",
+        slope_class = 1L, cell_count = 100L, area_ha = 100.0,
+        mean_elevation = 500, mean_slope = 3.0, stringsAsFactors = FALSE
+      ),
+      basin_data = data.frame(
+        subbasin = 1L, area_ha = 100.0, mean_elevation = 500,
+        min_elevation = 490, max_elevation = 510, mean_slope = 3.0,
+        n_hrus = 1L, n_landuses = 1L, n_soils = 1L,
+        stringsAsFactors = FALSE
+      ),
+      slope_classes = qswat_create_slope_classes()
+    ),
+    class = "qswat_project"
+  )
+
+  project <- qswat_write_database(project, db_file = db_file, overwrite = TRUE)
+
+  # gwflow config with small cells so the 1-km basin produces a 5x5 grid
+  cfg              <- qswat_read_gwflow_config()
+  cfg$cell_size    <- cell_size
+  # recharge = 3 (both HRU + LSU) when use_lsu_recharge = TRUE,
+  # recharge = 1 (HRU only)       when use_lsu_recharge = FALSE
+  cfg$hruorlsu_recharge <- if (use_lsu_recharge) 3L else 1L
+
+  project <- qswat_setup_gwflow(project, gwflow_config = cfg, overwrite = TRUE)
+
+  list(project = project, cfg = cfg, k_file = k_file, thick_file = thick_file)
+}
+
+
+test_that("qswat_populate_gwflow_gis populates gwflow_grid with active cells", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  tmpdir <- tempfile("gwgis_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+  res <- .make_gwflow_test_project(tmpdir, cell_size = 200L)
+  project  <- res$project
+  cfg      <- res$cfg
+
+  result <- qswat_populate_gwflow_gis(
+    project           = project,
+    gwflow_config     = cfg,
+    conductivity_file = res$k_file,
+    thickness_file    = res$thick_file,
+    thickness_scale   = 0.01,
+    overwrite         = TRUE
+  )
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  grid_rows <- DBI::dbGetQuery(con, "SELECT * FROM gwflow_grid")
+  # 1-km basin with 200-m cells gives a 5×5 = 25-cell grid; all 25 should be
+  # active since the basin covers the full extent
+  expect_gt(nrow(grid_rows), 0L)
+  expect_true(all(grid_rows$status > 0L))
+
+  # Elevation should be ~500 m (the synthetic DEM value)
+  expect_true(all(abs(grid_rows$elevation - 500) < 1e-3))
+
+  # Aquifer thickness: 2000 cm * 0.01 = 20 m
+  expect_true(all(abs(grid_rows$aquifer_thickness - 20) < 0.5))
+
+  # initial_head = elevation - wt_depth
+  expect_true(all(abs(grid_rows$initial_head -
+                        (grid_rows$elevation - cfg$wt_depth)) < 1e-3))
+})
+
+
+test_that("qswat_populate_gwflow_gis populates gwflow_zone from GLHYMPS file", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  tmpdir <- tempfile("gwzone_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+  res <- .make_gwflow_test_project(tmpdir)
+  project <- res$project
+  cfg     <- res$cfg
+
+  qswat_populate_gwflow_gis(
+    project           = project,
+    gwflow_config     = cfg,
+    conductivity_file = res$k_file,
+    thickness_file    = res$thick_file,
+    thickness_scale   = 0.01,
+    overwrite         = TRUE
+  )
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  zone_rows <- DBI::dbGetQuery(con, "SELECT * FROM gwflow_zone")
+  expect_equal(nrow(zone_rows), 1L)
+
+  # K_mday = 10^(-1100/100) * 1000 * 9.81 / 0.001 * 86400
+  expected_k <- 10^(-11) * 1000 * 9.81 / 0.001 * 86400
+  expect_equal(zone_rows$aquifer_k, expected_k, tolerance = 1e-3)
+  expect_equal(zone_rows$specific_yield,      cfg$init_sy)
+  expect_equal(zone_rows$streambed_k,         cfg$streambed_k)
+  expect_equal(zone_rows$streambed_thickness, cfg$streambed_thick)
+})
+
+
+test_that("qswat_populate_gwflow_gis populates gwflow_rivcell", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  tmpdir <- tempfile("gwriv_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+  res     <- .make_gwflow_test_project(tmpdir, cell_size = 200L)
+  project <- res$project
+  cfg     <- res$cfg
+
+  qswat_populate_gwflow_gis(
+    project           = project,
+    gwflow_config     = cfg,
+    conductivity_file = res$k_file,
+    thickness_file    = res$thick_file,
+    overwrite         = TRUE
+  )
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  riv <- DBI::dbGetQuery(con, "SELECT * FROM gwflow_rivcell")
+  # The 1-km horizontal stream crosses 5 cells; each segment should be ~200 m
+  expect_gt(nrow(riv), 0L)
+  expect_true(all(riv$length_m > 0))
+  # Total stream length across all cells should sum to ~1000 m
+  expect_equal(sum(riv$length_m), 1000, tolerance = 1)
+})
+
+
+test_that("qswat_populate_gwflow_gis populates gwflow_lsucell when recharge >= 2", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  tmpdir <- tempfile("gwlsu_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+  res     <- .make_gwflow_test_project(tmpdir, cell_size = 200L,
+                                        use_lsu_recharge = TRUE)
+  project <- res$project
+  cfg     <- res$cfg
+
+  qswat_populate_gwflow_gis(
+    project           = project,
+    gwflow_config     = cfg,
+    conductivity_file = res$k_file,
+    thickness_file    = res$thick_file,
+    overwrite         = TRUE
+  )
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  lsu <- DBI::dbGetQuery(con, "SELECT * FROM gwflow_lsucell")
+  expect_gt(nrow(lsu), 0L)
+  expect_true(all(lsu$area_m2 > 0))
+
+  # Total area across all cell-LSU pairs should equal basin area (1 km^2)
+  expect_equal(sum(lsu$area_m2), 1e6, tolerance = 1e3)
+})
+
+
+test_that("qswat_populate_gwflow_gis populates gwflow_hrucell when recharge is 1 or 3", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  # Case 1: recharge = 3 (both HRU + LSU)
+  tmpdir <- tempfile("gwhru_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+  res     <- .make_gwflow_test_project(tmpdir, cell_size = 200L,
+                                        use_lsu_recharge = TRUE)  # recharge = 3
+  project <- res$project
+  cfg     <- res$cfg
+
+  qswat_populate_gwflow_gis(
+    project           = project,
+    gwflow_config     = cfg,
+    conductivity_file = res$k_file,
+    thickness_file    = res$thick_file,
+    overwrite         = TRUE
+  )
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  hru <- DBI::dbGetQuery(con, "SELECT * FROM gwflow_hrucell")
+  expect_gt(nrow(hru), 0L)
+  expect_true(all(hru$area_m2 > 0))
+  DBI::dbDisconnect(con)
+
+  # Case 2: recharge = 1 (HRU-only; gwflow_hrucell should also be populated)
+  tmpdir2 <- tempfile("gwhru1_")
+  dir.create(tmpdir2)
+  on.exit(unlink(tmpdir2, recursive = TRUE), add = TRUE)
+
+  res2     <- .make_gwflow_test_project(tmpdir2, cell_size = 200L,
+                                         use_lsu_recharge = FALSE)  # recharge = 1
+  project2 <- res2$project
+  cfg2     <- res2$cfg
+
+  qswat_populate_gwflow_gis(
+    project           = project2,
+    gwflow_config     = cfg2,
+    conductivity_file = res2$k_file,
+    thickness_file    = res2$thick_file,
+    overwrite         = TRUE
+  )
+
+  con2 <- DBI::dbConnect(RSQLite::SQLite(), project2$db_file)
+  on.exit(DBI::dbDisconnect(con2), add = TRUE)
+
+  hru2 <- DBI::dbGetQuery(con2, "SELECT * FROM gwflow_hrucell")
+  expect_gt(nrow(hru2), 0L)
+
+  # With recharge = 1, gwflow_lsucell should be empty
+  lsu2 <- DBI::dbGetQuery(con2, "SELECT * FROM gwflow_lsucell")
+  expect_equal(nrow(lsu2), 0L)
+})
+
+
+test_that("qswat_populate_gwflow_gis updates gwflow_base row/col counts", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  tmpdir <- tempfile("gwrc_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+  res     <- .make_gwflow_test_project(tmpdir, cell_size = 200L)
+  project <- res$project
+  cfg     <- res$cfg
+
+  qswat_populate_gwflow_gis(
+    project           = project,
+    gwflow_config     = cfg,
+    conductivity_file = res$k_file,
+    thickness_file    = res$thick_file,
+    overwrite         = TRUE
+  )
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  base <- DBI::dbGetQuery(con, "SELECT row_count, col_count FROM gwflow_base")
+  # 1-km basin / 200-m cells → 5 rows × 5 cols
+  expect_equal(base$row_count, 5L)
+  expect_equal(base$col_count, 5L)
+})
+
+
+test_that("qswat_populate_gwflow_gis attaches gwflow_grid_sf to project", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("sf")
+  skip_if_not_installed("terra")
+
+  tmpdir <- tempfile("gwsf_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+  res     <- .make_gwflow_test_project(tmpdir, cell_size = 200L)
+  project <- res$project
+  cfg     <- res$cfg
+
+  result <- qswat_populate_gwflow_gis(
+    project           = project,
+    gwflow_config     = cfg,
+    conductivity_file = res$k_file,
+    thickness_file    = res$thick_file,
+    overwrite         = TRUE
+  )
+
+  expect_true(!is.null(result$gwflow_grid_sf))
+  expect_true(inherits(result$gwflow_grid_sf, "sf"))
+  expect_true("Id" %in% names(result$gwflow_grid_sf))
+  expect_true("Avg_active" %in% names(result$gwflow_grid_sf))
+  expect_true("Avg_Thick"  %in% names(result$gwflow_grid_sf))
+  expect_true("Avg_elevat" %in% names(result$gwflow_grid_sf))
+  expect_true("zone"       %in% names(result$gwflow_grid_sf))
+  expect_true("boundary"   %in% names(result$gwflow_grid_sf))
+})
+
+
+test_that("qswat_populate_gwflow_gis validates missing inputs", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("DBI")
+
+  bad_project <- structure(list(db_file = NULL), class = "qswat_project")
+  expect_error(
+    qswat_populate_gwflow_gis(bad_project, conductivity_file = "x",
+                               thickness_file = "y"),
+    "No database found"
+  )
+
+  tmpdir  <- tempfile("gwval_")
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+  db_file <- file.path(tmpdir, "p.sqlite")
+  file.create(db_file)
+
+  no_lsu  <- structure(list(db_file = db_file, lsu_sf = NULL),
+                        class = "qswat_project")
+  expect_error(
+    qswat_populate_gwflow_gis(no_lsu, conductivity_file = "x",
+                               thickness_file = "y"),
+    "lsu_sf"
+  )
+})
