@@ -226,6 +226,16 @@ test_that("qswat_setup_gwflow updates use_gwflow in project_config", {
   on.exit(DBI::dbDisconnect(con2), add = TRUE)
   pc_after <- DBI::dbGetQuery(con2, "SELECT use_gwflow FROM project_config")
   expect_equal(pc_after$use_gwflow, 1L)
+  
+  tabs <- DBI::dbListTables(con2)
+  gwflow_tabs <- tabs[grepl("gwflow", tabs)]
+  for (tbl in gwflow_tabs) {
+    # expect_true(tbl %in% tabs, label = paste0("table '", tbl, "' exists"))
+    df <- DBI::dbGetQuery(con2, paste0("SELECT * FROM ", tbl))
+    expect_true(nrow(df) > 0, label = paste0("table '", tbl, "' is queryable"))
+  }
+  
+  gwflow_grid <- DBI::dbGetQuery(con2, "SELECT * FROM gwflow_grid")
 })
 
 test_that("qswat_setup_gwflow validates project object", {
