@@ -493,44 +493,47 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
       #   recharge = 1 → HRU-cell only   → gwflow_hrucell must be populated
       #   recharge = 2 → LSU-cell only   → gwflow_lsucell must be populated
       #   recharge = 3 → both HRU + LSU  → both must be populated
-      recharge <- tryCatch({
-        r <- DBI::dbGetQuery(
-          con, "SELECT recharge FROM gwflow_base LIMIT 1"
-        )$recharge
-        as.integer(r)
-      }, error = function(e) 2L)
-
-      hru_recharge <- recharge == 1L || recharge == 3L
-      lsu_recharge <- recharge >= 2L
-
-      if (hru_recharge) {
-        n_hru <- DBI::dbGetQuery(
-          con, "SELECT COUNT(*) AS n FROM gwflow_hrucell"
-        )$n
-        ok_hru <- n_hru > 0
-        record(
-          "gwflow:hrucell_populated",
-          ok_hru,
-          if (ok_hru) paste0("gwflow_hrucell has ", n_hru,
-                              " HRU-cell mapping(s)")
-          else paste0("gwflow_hrucell is empty but recharge mode (", recharge,
-                      ") requires HRU-cell connections")
+      # Only evaluate when gwflow_base has exactly 1 row (ok_base is TRUE);
+      # otherwise the table is already flagged as empty above.
+      if (ok_base) {
+        recharge <- as.integer(
+          DBI::dbGetQuery(con,
+            "SELECT recharge FROM gwflow_base LIMIT 1"
+          )$recharge
         )
-      }
 
-      if (lsu_recharge) {
-        n_lsu <- DBI::dbGetQuery(
-          con, "SELECT COUNT(*) AS n FROM gwflow_lsucell"
-        )$n
-        ok_lsu <- n_lsu > 0
-        record(
-          "gwflow:lsucell_populated",
-          ok_lsu,
-          if (ok_lsu) paste0("gwflow_lsucell has ", n_lsu,
-                              " LSU-cell mapping(s)")
-          else paste0("gwflow_lsucell is empty but recharge mode (", recharge,
-                      ") requires LSU-cell connections")
-        )
+        hru_recharge <- recharge == 1L || recharge == 3L
+        lsu_recharge <- recharge >= 2L
+
+        if (hru_recharge) {
+          n_hru <- DBI::dbGetQuery(
+            con, "SELECT COUNT(*) AS n FROM gwflow_hrucell"
+          )$n
+          ok_hru <- n_hru > 0
+          record(
+            "gwflow:hrucell_populated",
+            ok_hru,
+            if (ok_hru) paste0("gwflow_hrucell has ", n_hru,
+                                " HRU-cell mapping(s)")
+            else paste0("gwflow_hrucell is empty but recharge mode (", recharge,
+                        ") requires HRU-cell connections")
+          )
+        }
+
+        if (lsu_recharge) {
+          n_lsu <- DBI::dbGetQuery(
+            con, "SELECT COUNT(*) AS n FROM gwflow_lsucell"
+          )$n
+          ok_lsu <- n_lsu > 0
+          record(
+            "gwflow:lsucell_populated",
+            ok_lsu,
+            if (ok_lsu) paste0("gwflow_lsucell has ", n_lsu,
+                                " LSU-cell mapping(s)")
+            else paste0("gwflow_lsucell is empty but recharge mode (", recharge,
+                        ") requires LSU-cell connections")
+          )
+        }
       }
     }
   }

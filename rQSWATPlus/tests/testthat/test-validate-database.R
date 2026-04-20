@@ -409,7 +409,15 @@ test_that("qswat_check_database passes gwflow checks with fully populated tables
   DBI::dbExecute(con,
     "INSERT INTO gwflow_grid VALUES (1, 1, 1, 500.0, 20.0, 1.0, 495.0, 0)")
 
-  # Populate gwflow_base (recharge=2 → LSU recharge)
+  # Populate gwflow_base (recharge=2 → LSU recharge).
+  # Column order: cell_size, row_count, col_count, boundary_conditions,
+  #   recharge, soil_transfer, saturation_excess, external_pumping,
+  #   tile_drainage, reservoir_exchange, wetland_exchange, floodplain_exchange,
+  #   canal_seepage, solute_transport, transport_steps, disp_coef,
+  #   recharge_delay, et_extinction_depth, water_table_depth, river_depth,
+  #   tile_depth, tile_area, tile_k, tile_groups, resbed_thickness, resbed_k,
+  #   wet_thickness, daily_output, annual_output, aa_output,
+  #   daily_output_row, daily_output_col, timestep_balance
   DBI::dbExecute(con, paste0(
     "INSERT INTO gwflow_base VALUES (",
     "200,1,1,1,2,1,1,0,0,1,1,1,0,1,1,5.0,0,1.0,5.0,5.0,1.22,50.0,5.0,",
@@ -466,7 +474,7 @@ test_that("qswat_check_database fails when gwflow_lsucell empty in LSU recharge 
     "INSERT INTO gwflow_zone VALUES (1, 10.0, 0.2, 0.005, 0.5)")
   DBI::dbExecute(con,
     "INSERT INTO gwflow_grid VALUES (1, 1, 1, 500.0, 20.0, 1.0, 495.0, 0)")
-  # recharge=2 → LSU recharge
+  # recharge=2 → LSU recharge (column 5 of gwflow_base)
   DBI::dbExecute(con, paste0(
     "INSERT INTO gwflow_base VALUES (",
     "200,1,1,1,2,1,1,0,0,1,1,1,0,1,1,5.0,0,1.0,5.0,5.0,1.22,50.0,5.0,",
@@ -508,7 +516,7 @@ test_that("qswat_check_database fails when gwflow_hrucell empty in HRU recharge 
     "INSERT INTO gwflow_zone VALUES (1, 10.0, 0.2, 0.005, 0.5)")
   DBI::dbExecute(con,
     "INSERT INTO gwflow_grid VALUES (1, 1, 1, 500.0, 20.0, 1.0, 495.0, 0)")
-  # recharge=1 → HRU recharge
+  # recharge=1 → HRU recharge (column 5 of gwflow_base)
   DBI::dbExecute(con, paste0(
     "INSERT INTO gwflow_base VALUES (",
     "200,1,1,1,1,1,1,0,0,1,1,1,0,1,1,5.0,0,1.0,5.0,5.0,1.22,50.0,5.0,",
