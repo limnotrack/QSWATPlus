@@ -23,6 +23,7 @@ qswat_run(
   area_threshold = 0,
   target_hrus = NULL,
   use_gwflow = FALSE,
+  gwflow_config = NULL,
   use_aquifers = TRUE,
   n_processes = 1L,
   quiet = FALSE,
@@ -78,7 +79,13 @@ when \code{hru_method = "filter_area"}. Default 0.}
 subbasin when \code{hru_method = "target"}. Default NULL.}
 
 \item{use_gwflow}{Logical. Enable gwflow groundwater modelling.
-Default FALSE.}
+When \code{TRUE}, \code{\link[=qswat_setup_gwflow]{qswat_setup_gwflow()}} is called automatically after
+\code{\link[=qswat_write_database]{qswat_write_database()}} to initialise the gwflow tables in the
+project database. Default FALSE.}
+
+\item{gwflow_config}{A named list of gwflow settings as returned by
+\code{\link[=qswat_read_gwflow_config]{qswat_read_gwflow_config()}}. Only used when \code{use_gwflow = TRUE}.
+If \code{NULL} the bundled \code{gwflow.ini} defaults are used.}
 
 \item{use_aquifers}{Logical. Create SWAT+ aquifer objects. Default
 TRUE.}

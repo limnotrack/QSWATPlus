@@ -110,6 +110,57 @@ test_that("qswat_run works", {
   expect_true(file.exists(project$db_file))
 })
 
+test_that("qswat_run with use_gwflow=TRUE initialises gwflow tables", {
+  skip_if_no_taudem()
+
+  dem <- system.file("extdata", "ravn_dem.tif", package = "rQSWATPlus")
+  landuse <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
+  soil <- system.file("extdata", "ravn_soil.tif", package = "rQSWATPlus")
+  lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
+  soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
+  outlet <- system.file("extdata", "ravn_outlet.shp", package = "rQSWATPlus")
+  usersoil <- system.file("extdata", "ravn_usersoil.csv", package = "rQSWATPlus")
+
+  skip_if(dem == "", "Example data not available")
+
+  proj_dir <- file.path(tempdir(), "ravn_gwflow")
+  on.exit(unlink(proj_dir, recursive = TRUE), add = TRUE)
+
+  project <- qswat_run(
+    project_dir = proj_dir,
+    dem_file = dem,
+    landuse_file = landuse,
+    landuse_lookup = lu_lookup,
+    soil_file = soil,
+    soil_lookup = soil_lookup,
+    usersoil = usersoil,
+    outlet_file = outlet,
+    threshold = 500,
+    slope_breaks = c(0, 5, 15, 9999),
+    landuse_threshold = 5,
+    soil_threshold = 5,
+    use_gwflow = TRUE,
+    quiet = TRUE
+  )
+
+  expect_true(isTRUE(project$use_gwflow))
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), project$db_file)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  pc <- DBI::dbGetQuery(con, "SELECT use_gwflow FROM project_config")
+  expect_equal(pc$use_gwflow, 1L, label = "project_config.use_gwflow = 1")
+
+  tbls <- DBI::dbListTables(con)
+  gwflow_tables <- c("gwflow_base", "gwflow_zone", "gwflow_grid",
+                     "gwflow_out_days", "gwflow_obs_locs", "gwflow_solutes",
+                     "gwflow_init_conc", "gwflow_hrucell", "gwflow_fpcell",
+                     "gwflow_rivcell", "gwflow_lsucell", "gwflow_rescell")
+  for (tbl in gwflow_tables) {
+    expect_true(tbl %in% tbls, label = paste0("table '", tbl, "' exists"))
+  }
+})
+
 # Full end-to-end integration test: build project and verify SWAT+ Editor readiness
 test_that("example dataset produces a SWAT+ Editor-ready database", {
   skip_if_no_taudem()
