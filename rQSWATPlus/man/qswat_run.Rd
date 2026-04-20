@@ -24,6 +24,9 @@ qswat_run(
   target_hrus = NULL,
   use_gwflow = FALSE,
   gwflow_config = NULL,
+  aquifer_thickness = 20,
+  conductivity_file = NULL,
+  default_aquifer_k = 1,
   use_aquifers = TRUE,
   n_processes = 1L,
   quiet = FALSE,
@@ -86,6 +89,18 @@ project database. Default FALSE.}
 \item{gwflow_config}{A named list of gwflow settings as returned by
 \code{\link[=qswat_read_gwflow_config]{qswat_read_gwflow_config()}}. Only used when \code{use_gwflow = TRUE}.
 If \code{NULL} the bundled \code{gwflow.ini} defaults are used.}
+
+\item{aquifer_thickness}{Numeric constant (aquifer thickness in metres,
+default \code{20}) or a file path to a raster or polygon shapefile
+containing aquifer thickness values. Passed to \code{\link[=qswat_setup_gwflow]{qswat_setup_gwflow()}}
+when \code{use_gwflow = TRUE}.}
+
+\item{conductivity_file}{Optional path to a polygon shapefile defining
+aquifer hydraulic-conductivity zones. Passed to \code{\link[=qswat_setup_gwflow]{qswat_setup_gwflow()}}
+when \code{use_gwflow = TRUE}. If \code{NULL} a single default zone is used.}
+
+\item{default_aquifer_k}{Default hydraulic conductivity (m/day) for the
+single zone created when \code{conductivity_file = NULL}. Default \code{1.0}.}
 
 \item{use_aquifers}{Logical. Create SWAT+ aquifer objects. Default
 TRUE.}

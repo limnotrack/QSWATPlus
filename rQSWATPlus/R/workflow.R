@@ -40,6 +40,15 @@
 #' @param gwflow_config A named list of gwflow settings as returned by
 #'   [qswat_read_gwflow_config()]. Only used when `use_gwflow = TRUE`.
 #'   If `NULL` the bundled `gwflow.ini` defaults are used.
+#' @param aquifer_thickness Numeric constant (aquifer thickness in metres,
+#'   default `20`) or a file path to a raster or polygon shapefile
+#'   containing aquifer thickness values. Passed to [qswat_setup_gwflow()]
+#'   when `use_gwflow = TRUE`.
+#' @param conductivity_file Optional path to a polygon shapefile defining
+#'   aquifer hydraulic-conductivity zones. Passed to [qswat_setup_gwflow()]
+#'   when `use_gwflow = TRUE`. If `NULL` a single default zone is used.
+#' @param default_aquifer_k Default hydraulic conductivity (m/day) for the
+#'   single zone created when `conductivity_file = NULL`. Default `1.0`.
 #' @param use_aquifers Logical. Create SWAT+ aquifer objects. Default
 #'   TRUE.
 #' @param n_processes Integer. Number of MPI processes. Default 1.
@@ -97,6 +106,9 @@ qswat_run <- function(project_dir,
                       target_hrus = NULL,
                       use_gwflow = FALSE,
                       gwflow_config = NULL,
+                      aquifer_thickness = 20.0,
+                      conductivity_file = NULL,
+                      default_aquifer_k = 1.0,
                       use_aquifers = TRUE,
                       n_processes = 1L,
                       quiet = FALSE,
@@ -160,8 +172,14 @@ qswat_run <- function(project_dir,
   # Optional Step 6: Set up gwflow tables
   if (isTRUE(use_gwflow)) {
     if (!quiet) message("\n=== Step 6/6: Setting up gwflow tables ===")
-    project <- qswat_setup_gwflow(project, gwflow_config = gwflow_config,
-                                  overwrite = TRUE)
+    project <- qswat_setup_gwflow(
+      project,
+      gwflow_config     = gwflow_config,
+      overwrite         = TRUE,
+      aquifer_thickness = aquifer_thickness,
+      conductivity_file = conductivity_file,
+      default_aquifer_k = default_aquifer_k
+    )
   }
 
   if (!quiet) message("\n=== QSWATPlus workflow complete! ===")
