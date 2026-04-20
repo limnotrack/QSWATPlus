@@ -50,6 +50,13 @@ present and non-empty
 \item \strong{HAWQS tables}: HAWQS-specific tables (plant_HAWQS,
 urban_HAWQS, CDL landuse field tables, statsgo_ssurgo_lkey)
 from QSWATPlusProjHAWQS.sqlite are present
+\item \strong{gwflow tables}: when \code{use_gwflow = 1} in project_config,
+all twelve gwflow tables exist and the core tables
+(gwflow_base, gwflow_zone, gwflow_grid, gwflow_solutes,
+gwflow_rivcell) are populated; recharge-specific cell mapping
+tables (gwflow_hrucell for HRU recharge, gwflow_lsucell for
+LSU recharge) are non-empty according to the recharge mode
+stored in gwflow_base
 }
 }
 \examples{

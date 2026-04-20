@@ -4,7 +4,14 @@
 \alias{qswat_setup_gwflow}
 \title{Set Up SWAT+ Groundwater Flow (gwflow) Tables}
 \usage{
-qswat_setup_gwflow(project, gwflow_config = NULL, overwrite = FALSE)
+qswat_setup_gwflow(
+  project,
+  gwflow_config = NULL,
+  overwrite = FALSE,
+  aquifer_thickness = 20,
+  conductivity_file = NULL,
+  default_aquifer_k = 1
+)
 }
 \arguments{
 \item{project}{A \code{qswat_project} object returned by
@@ -16,6 +23,24 @@ defaults are used.}
 
 \item{overwrite}{Logical.  If \code{TRUE}, drop and recreate existing gwflow
 tables.  Default \code{FALSE}.}
+
+\item{aquifer_thickness}{Numeric (constant thickness in metres,
+default \code{20}) \strong{or} a file path to a raster (\code{.tif}) or polygon
+shapefile (\code{.shp}) containing aquifer thickness values.  When a
+shapefile is provided it must have a numeric attribute named
+\code{"thickness"} or \code{"Avg_Thick"}.  When a raster is provided the
+mean cell value (in metres) is extracted for each grid cell.}
+
+\item{conductivity_file}{Optional path to a polygon shapefile that
+defines aquifer hydraulic-conductivity zones.  The shapefile must
+contain a numeric column \code{"aquifer_k"} (K in m/day) or
+\code{"logK_Ferr_"} (log10 intrinsic permeability × 100 as stored in
+GLHYMPS).  If \code{NULL} a single default zone is created using
+\code{default_aquifer_k}.}
+
+\item{default_aquifer_k}{Numeric.  Default hydraulic conductivity
+(m/day) for the single zone created when \code{conductivity_file} is
+\code{NULL}.  Default \code{1.0}.}
 }
 \value{
 The \code{project} object with \code{project$use_gwflow} set to \code{TRUE}
@@ -23,9 +48,9 @@ The \code{project} object with \code{project$use_gwflow} set to \code{TRUE}
 }
 \description{
 Creates the gwflow tables in the project SQLite database and populates
-\code{gwflow_base} and \code{gwflow_solutes} from the supplied configuration.
-This is the R equivalent of the gwflow setup performed by the
-\code{GWFlow.createTables()} and related methods in the QGIS plugin's
+them from the supplied configuration and available spatial data.
+This is the R equivalent of the gwflow setup performed by
+\code{GWFlow.createTables()} and the GIS routines in the QGIS plugin's
 \code{gwflow.py}.
 }
 \details{
@@ -35,24 +60,41 @@ Python plugin: \code{gwflow_base}, \code{gwflow_zone}, \code{gwflow_grid},
 \code{gwflow_init_conc}, \code{gwflow_hrucell}, \code{gwflow_fpcell},
 \code{gwflow_rivcell}, \code{gwflow_lsucell}, \code{gwflow_rescell}.
 
-After calling this function the database is ready to receive spatial
-cell data (zones, grid cells, river cells, etc.) that require GIS
-processing not yet automated in rQSWATPlus.
+When the project object contains spatial data (\code{lsu_sf}, \code{hru_sf},
+\code{channels_sf} or \code{streams_sf}) the function also runs the GIS
+processing steps to populate the grid and cell connection tables.
+This happens automatically when called from \code{\link[=qswat_run]{qswat_run()}} with
+\code{use_gwflow = TRUE}.
 
-The following tables are created:
+The following tables are created and, when spatial data are
+available, populated:
 \describe{
-\item{gwflow_base}{Single-row table with global gwflow parameters.}
-\item{gwflow_zone}{Aquifer hydraulic parameter zones.}
-\item{gwflow_grid}{Active grid cells (populated by GIS workflow).}
-\item{gwflow_out_days}{Optional output day pairs (year, jday).}
-\item{gwflow_obs_locs}{Observation cell IDs.}
-\item{gwflow_solutes}{Chemical solute definitions and initial concentrations.}
-\item{gwflow_init_conc}{Per-cell initial solute concentrations.}
-\item{gwflow_hrucell}{HRU-to-cell area mapping.}
-\item{gwflow_fpcell}{Floodplain-cell connections.}
-\item{gwflow_rivcell}{River-cell connections.}
+\item{gwflow_base}{Single-row table with global gwflow parameters
+(always populated; \code{row_count}/\code{col_count} updated after grid
+creation).}
+\item{gwflow_zone}{Aquifer hydraulic parameter zones (one default
+zone, or one row per zone from \code{conductivity_file}).}
+\item{gwflow_grid}{Active grid cells with elevation, aquifer
+thickness, initial head, and zone assignment.}
+\item{gwflow_out_days}{Optional output day pairs (not populated
+automatically; left empty for user entry).}
+\item{gwflow_obs_locs}{Observation cell IDs (not populated
+automatically; left empty for user entry).}
+\item{gwflow_solutes}{Chemical solute definitions and initial
+concentrations (always populated with 10 default solutes).}
+\item{gwflow_init_conc}{Per-cell initial solute concentrations
+(not populated automatically).}
+\item{gwflow_hrucell}{HRU-to-cell area mapping (populated when
+HRU recharge mode is selected and \code{hru_sf} is available).}
+\item{gwflow_fpcell}{Floodplain-cell connections (empty in
+rQSWATPlus because LSUs are 1:1 with subbasins, with no
+floodplain landscape units).}
+\item{gwflow_rivcell}{River-cell connections (channel-cell
+intersection lengths).}
 \item{gwflow_lsucell}{LSU-cell area mapping.}
-\item{gwflow_rescell}{Reservoir-cell connections.}
+\item{gwflow_rescell}{Reservoir-cell connections (populated via
+the \code{gis_water}–\code{gwflow_lsucell} join when water bodies are
+present).}
 }
 }
 \examples{
