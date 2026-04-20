@@ -1,0 +1,286 @@
+---
+title: "Complete Workflow Example"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Complete Workflow Example}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = TRUE
+)
+```
+
+## Overview
+
+This vignette demonstrates a complete SWAT+ model setup using `rQSWATPlus` 
+with the included Ravn watershed dataset from Denmark. The workflow covers 
+every step from project initialization to database creation.
+
+## The Ravn Watershed Dataset
+
+The Ravn watershed is a small catchment in Denmark included as example data.
+It includes:
+
+- **DEM**: 30m resolution SRTM elevation data
+- **Land use**: Categorical raster with 55+ land cover classes
+- **Soil**: Categorical raster with 49 soil types
+- **Outlet**: Point shapefile marking the watershed outlet
+- **Lookup tables**: CSV files mapping raster values to SWAT+ codes
+
+## Step 1: Load Package and Check Prerequisites
+
+```{r setup}
+library(rQSWATPlus)
+
+# Verify TauDEM is available
+traudem::taudem_sitrep()
+```
+
+## Step 2: Locate Example Data
+
+```{r data-paths}
+# Get paths to example data included in the package
+dem <- system.file("extdata", "ravn_dem.tif", package = "rQSWATPlus")
+landuse <- system.file("extdata", "ravn_landuse.tif", package = "rQSWATPlus")
+soil <- system.file("extdata", "ravn_soil.tif", package = "rQSWATPlus")
+lu_lookup <- system.file("extdata", "ravn_landuse.csv", package = "rQSWATPlus")
+soil_lookup <- system.file("extdata", "ravn_soil.csv", package = "rQSWATPlus")
+outlet <- system.file("extdata", "ravn_outlet.shp", package = "rQSWATPlus")
+```
+
+## Step 3: Inspect the Input Data
+
+It is good practice to inspect your input data before running the workflow.
+
+```{r inspect}
+library(terra)
+
+# Inspect the DEM
+dem_rast <- rast(dem)
+dem_rast
+
+# Check dimensions and resolution
+cat("DEM dimensions:", nrow(dem_rast), "x", ncol(dem_rast), "\n")
+cat("Resolution:", res(dem_rast), "\n")
+cat("CRS:", crs(dem_rast, describe = TRUE)$name, "\n")
+
+# Inspect land use raster
+lu_rast <- rast(landuse)
+cat("\nLand use unique values:", length(unique(values(lu_rast, na.rm = TRUE))), "\n")
+
+# Read and inspect lookup tables
+lu_table <- read.csv(lu_lookup)
+cat("\nLand use lookup (first 10 rows):\n")
+print(head(lu_table, 10))
+
+soil_table <- read.csv(soil_lookup)
+cat("\nSoil lookup (first 10 rows):\n")
+print(head(soil_table, 10))
+```
+
+## Step 4: Set Up the Project
+
+```{r setup-project}
+# Create a project directory (use a temporary directory for this example)
+project_dir <- file.path(tempdir(), "ravn_swatplus")
+
+# Initialize the project
+project <- qswat_setup(
+  project_dir = project_dir,
+  dem_file = dem,
+  landuse_file = landuse,
+  soil_file = soil,
+  landuse_lookup = lu_lookup,
+  soil_lookup = soil_lookup,
+  outlet_file = outlet
+)
+
+# Print project summary
+print(project)
+```
+
+## Step 5: Run Watershed Delineation
+
+The delineation step processes the DEM using TauDEM to identify streams, 
+channels, subbasins, and watershed boundaries.
+
+The `threshold` parameter controls stream definition - it specifies the minimum 
+number of cells that must drain to a point for it to be classified as a stream. 
+A lower threshold creates more streams and smaller subbasins.
+
+```{r delineate}
+# Run delineation with a stream threshold of 500 cells
+# This means a cell needs at least 500 upstream cells to be a stream
+project <- qswat_delineate(
+  project,
+  threshold = 500,         # Stream threshold (cells)
+  channel_threshold = 50,  # Channel threshold (finer network)
+  quiet = TRUE            # Show TauDEM progress messages
+)
+```
+
+### Understanding the Delineation Steps
+
+The delineation runs these TauDEM operations in sequence:
+
+1. **Pit Removal** (`pitremove`): Fills depressions in the DEM that would 
+   trap water and prevent proper flow routing
+   
+2. **D8 Flow Direction** (`d8flowdir`): Assigns each cell one of 8 flow 
+   directions pointing to the steepest downslope neighbor
+   
+3. **D-infinity Flow Direction** (`dinfflowdir`): Calculates continuous flow 
+   angles and slopes (used for landscape analysis)
+   
+4. **Contributing Area** (`aread8`): Computes the number of upstream cells 
+   draining through each cell
+   
+5. **Threshold** (`threshold`): Marks cells as streams where contributing 
+   area exceeds the threshold value
+   
+6. **Move Outlets** (`moveoutletstostreams`): Snaps user-provided outlet 
+   points to the nearest stream cell
+   
+7. **Stream Network** (`streamnet`): Generates the complete stream network 
+   topology, watershed boundaries, and subbasin delineation
+
+## Step 6: Create Stream Network
+
+Extract stream topology from the delineation results.
+
+```{r streams}
+project <- qswat_create_streams(project)
+
+# View stream topology
+head(project$stream_topology)
+```
+
+## Step 7: Create HRUs
+
+HRUs (Hydrologic Response Units) are the fundamental computational units in 
+SWAT+. Each HRU is a unique combination of subbasin, land use, soil type, 
+and slope class.
+
+```{r hrus}
+# Read lookup tables
+lu <- qswat_read_landuse_lookup(lu_lookup)
+soil_lkp <- qswat_read_soil_lookup(soil_lookup)
+
+# Define slope classes: 0-5%, 5-15%, and >15%
+slopes <- qswat_create_slope_classes(c(0, 5, 15, 9999))
+print(slopes)
+
+# Create HRUs with area thresholds to filter small units
+project <- qswat_create_hrus(
+  project,
+  landuse_lookup = lu,
+  soil_lookup = soil_lkp,
+  slope_classes = slopes,
+  landuse_threshold = 5,   # Land use must be >5% of subbasin
+  soil_threshold = 5,      # Soil must be >5% of land use area
+  slope_threshold = 0       # No slope filtering
+)
+
+# View HRU summary
+cat("Total HRUs:", nrow(project$hru_data), "\n")
+cat("Subbasins:", length(unique(project$hru_data$subbasin)), "\n")
+
+# View first few HRUs
+head(project$hru_data)
+
+# View basin statistics
+print(project$basin_data)
+```
+
+### Understanding HRU Thresholds
+
+The threshold filtering uses a "dominant" approach:
+
+1. **Land use threshold** (e.g., 5%): Within each subbasin, only land uses 
+   covering more than 5% of the subbasin area are kept.
+
+2. **Soil threshold** (e.g., 5%): Within each remaining land use, only soils 
+   covering more than 5% of that land use's area are kept.
+
+3. **Slope threshold** (e.g., 10%): Within each remaining soil type, only 
+   slope classes covering more than 10% of that soil's area are kept.
+
+Higher thresholds reduce the number of HRUs but may oversimplify the landscape.
+
+## Step 8: Write the SWAT+ Database
+
+```{r database}
+# Write the project database
+project <- qswat_write_database(project, overwrite = TRUE)
+
+# Verify the database
+library(DBI)
+library(RSQLite)
+con <- dbConnect(SQLite(), project$db_file)
+
+# List tables
+cat("Database tables:\n")
+print(dbListTables(con))
+
+# Check table contents
+cat("\nSubbasins:\n")
+print(dbGetQuery(con, "SELECT * FROM gis_subbasins"))
+
+cat("\nHRUs (first 10):\n")
+print(dbGetQuery(con, "SELECT * FROM gis_hrus LIMIT 10"))
+
+cat("\nRouting:\n")
+print(dbGetQuery(con, "SELECT * FROM gis_routing"))
+
+dbDisconnect(con)
+```
+
+## Alternative: Run Everything at Once
+
+For convenience, `qswat_run()` executes the entire workflow:
+
+```{r run-all}
+project <- qswat_run(
+  project_dir = file.path(tempdir(), "ravn_quick"),
+  dem_file = dem,
+  landuse_file = landuse,
+  soil_file = soil,
+  landuse_lookup = lu_lookup,
+  soil_lookup = soil_lookup,
+  outlet_file = outlet,
+  threshold = 500,
+  slope_breaks = c(0, 5, 15, 9999),
+  landuse_threshold = 5,
+  soil_threshold = 5
+)
+```
+
+## Next Steps After rQSWATPlus
+
+After creating the project database with `rQSWATPlus`, the next steps in the 
+SWAT+ modeling workflow are:
+
+1. **SWAT+ Editor**: Open the SQLite database in the SWAT+ Editor to:
+   - Add weather/climate data
+   - Configure management operations
+   - Set up point sources
+   - Configure reservoirs and ponds
+   - Write SWAT+ input files
+
+2. **SWAT+ Simulation**: Run the SWAT+ executable with the generated input files
+
+3. **Output Analysis**: Analyze SWAT+ outputs for hydrology, water quality, 
+   sediment transport, etc.
+
+## Cleanup
+
+```{r cleanup}
+# Remove temporary project directories
+unlink(file.path(tempdir(), "ravn_swatplus"), recursive = TRUE)
+unlink(file.path(tempdir(), "ravn_quick"), recursive = TRUE)
+```
