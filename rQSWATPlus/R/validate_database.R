@@ -40,6 +40,13 @@
 #'   \item **HAWQS tables**: HAWQS-specific tables (plant_HAWQS,
 #'     urban_HAWQS, CDL landuse field tables, statsgo_ssurgo_lkey)
 #'     from QSWATPlusProjHAWQS.sqlite are present
+#'   \item **gwflow tables**: when `use_gwflow = 1` in project_config,
+#'     all twelve gwflow tables exist and the core tables
+#'     (gwflow_base, gwflow_zone, gwflow_grid, gwflow_solutes,
+#'     gwflow_rivcell) are populated; recharge-specific cell mapping
+#'     tables (gwflow_hrucell for HRU recharge, gwflow_lsucell for
+#'     LSU recharge) are non-empty according to the recharge mode
+#'     stored in gwflow_base
 #' }
 #'
 #' @examples
@@ -392,6 +399,140 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
     warn(paste0(length(missing_hawqs), " HAWQS-specific table(s) are ",
                 "missing (install QSWATPlusProjHAWQS.sqlite to enable): ",
                 paste(missing_hawqs, collapse = ", ")))
+  }
+
+  # ---- 10. gwflow tables (if gwflow is enabled) ----
+  use_gwflow <- tryCatch({
+    pc <- DBI::dbGetQuery(
+      con, "SELECT use_gwflow FROM project_config LIMIT 1"
+    )
+    if (nrow(pc) > 0 && !is.na(pc$use_gwflow)) as.integer(pc$use_gwflow)
+    else 0L
+  }, error = function(e) 0L)
+
+  if (use_gwflow == 1L) {
+    gwflow_all_tables <- c(
+      "gwflow_base", "gwflow_zone", "gwflow_grid",
+      "gwflow_out_days", "gwflow_obs_locs", "gwflow_solutes",
+      "gwflow_init_conc", "gwflow_hrucell", "gwflow_fpcell",
+      "gwflow_rivcell", "gwflow_lsucell", "gwflow_rescell"
+    )
+    missing_gw <- gwflow_all_tables[!gwflow_all_tables %in% existing_tables]
+    ok <- length(missing_gw) == 0
+    record(
+      "gwflow:tables_exist",
+      ok,
+      if (ok) "All gwflow tables exist"
+      else paste0("gwflow is enabled but ", length(missing_gw),
+                  " table(s) are missing: ",
+                  paste(missing_gw, collapse = ", "))
+    )
+
+    if (ok) {
+      # gwflow_base: exactly 1 row
+      n_base <- DBI::dbGetQuery(
+        con, "SELECT COUNT(*) AS n FROM gwflow_base"
+      )$n
+      ok_base <- n_base == 1L
+      record(
+        "gwflow:base_populated",
+        ok_base,
+        if (ok_base) "gwflow_base has 1 configuration row"
+        else paste0("gwflow_base must have exactly 1 row (found ", n_base, ")")
+      )
+
+      # gwflow_zone: at least 1 row
+      n_zone <- DBI::dbGetQuery(
+        con, "SELECT COUNT(*) AS n FROM gwflow_zone"
+      )$n
+      ok_zone <- n_zone > 0
+      record(
+        "gwflow:zone_populated",
+        ok_zone,
+        if (ok_zone) paste0("gwflow_zone has ", n_zone, " zone(s)")
+        else "gwflow_zone is empty (no aquifer zones defined)"
+      )
+
+      # gwflow_grid: at least 1 row
+      n_grid <- DBI::dbGetQuery(
+        con, "SELECT COUNT(*) AS n FROM gwflow_grid"
+      )$n
+      ok_grid <- n_grid > 0
+      record(
+        "gwflow:grid_populated",
+        ok_grid,
+        if (ok_grid) paste0("gwflow_grid has ", n_grid, " cell(s)")
+        else "gwflow_grid is empty (no grid cells defined)"
+      )
+
+      # gwflow_solutes: at least 1 row (Python writes 10 default solutes)
+      n_sol <- DBI::dbGetQuery(
+        con, "SELECT COUNT(*) AS n FROM gwflow_solutes"
+      )$n
+      ok_sol <- n_sol > 0
+      record(
+        "gwflow:solutes_populated",
+        ok_sol,
+        if (ok_sol) paste0("gwflow_solutes has ", n_sol, " solute(s)")
+        else "gwflow_solutes is empty (no solutes defined)"
+      )
+
+      # gwflow_rivcell: at least 1 row
+      n_riv <- DBI::dbGetQuery(
+        con, "SELECT COUNT(*) AS n FROM gwflow_rivcell"
+      )$n
+      ok_riv <- n_riv > 0
+      record(
+        "gwflow:rivcell_populated",
+        ok_riv,
+        if (ok_riv) paste0("gwflow_rivcell has ", n_riv, " river cell(s)")
+        else "gwflow_rivcell is empty (no river-cell connections defined)"
+      )
+
+      # Recharge-specific checks (mirrors gwflow.py HRUorLSU_recharge logic):
+      #   recharge = 1 → HRU-cell only   → gwflow_hrucell must be populated
+      #   recharge = 2 → LSU-cell only   → gwflow_lsucell must be populated
+      #   recharge = 3 → both HRU + LSU  → both must be populated
+      recharge <- tryCatch({
+        r <- DBI::dbGetQuery(
+          con, "SELECT recharge FROM gwflow_base LIMIT 1"
+        )$recharge
+        as.integer(r)
+      }, error = function(e) 2L)
+
+      hru_recharge <- recharge == 1L || recharge == 3L
+      lsu_recharge <- recharge >= 2L
+
+      if (hru_recharge) {
+        n_hru <- DBI::dbGetQuery(
+          con, "SELECT COUNT(*) AS n FROM gwflow_hrucell"
+        )$n
+        ok_hru <- n_hru > 0
+        record(
+          "gwflow:hrucell_populated",
+          ok_hru,
+          if (ok_hru) paste0("gwflow_hrucell has ", n_hru,
+                              " HRU-cell mapping(s)")
+          else paste0("gwflow_hrucell is empty but recharge mode (", recharge,
+                      ") requires HRU-cell connections")
+        )
+      }
+
+      if (lsu_recharge) {
+        n_lsu <- DBI::dbGetQuery(
+          con, "SELECT COUNT(*) AS n FROM gwflow_lsucell"
+        )$n
+        ok_lsu <- n_lsu > 0
+        record(
+          "gwflow:lsucell_populated",
+          ok_lsu,
+          if (ok_lsu) paste0("gwflow_lsucell has ", n_lsu,
+                              " LSU-cell mapping(s)")
+          else paste0("gwflow_lsucell is empty but recharge mode (", recharge,
+                      ") requires LSU-cell connections")
+        )
+      }
+    }
   }
 
   result <- .build_check_result(checks, warnings_list, errors_list)
