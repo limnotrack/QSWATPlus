@@ -159,7 +159,27 @@ test_that("qswat_run with use_gwflow=TRUE initialises gwflow tables", {
   for (tbl in gwflow_tables) {
     expect_true(tbl %in% tbls, label = paste0("table '", tbl, "' exists"))
   }
+
+  # Verify that spatial tables are populated (not empty)
+  base_row <- DBI::dbGetQuery(con, "SELECT row_count, col_count FROM gwflow_base")
+  expect_gt(base_row$row_count, 0L,
+            label = "gwflow_base.row_count updated after grid creation")
+  expect_gt(base_row$col_count, 0L,
+            label = "gwflow_base.col_count updated after grid creation")
+
+  n_zone <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM gwflow_zone")$n
+  expect_gt(n_zone, 0L, label = "gwflow_zone is populated")
+
+  n_grid <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM gwflow_grid")$n
+  expect_gt(n_grid, 0L, label = "gwflow_grid is populated")
+
+  n_riv <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM gwflow_rivcell")$n
+  expect_gt(n_riv, 0L, label = "gwflow_rivcell is populated")
+
+  n_lsu <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM gwflow_lsucell")$n
+  expect_gt(n_lsu, 0L, label = "gwflow_lsucell is populated")
 })
+
 
 # Full end-to-end integration test: build project and verify SWAT+ Editor readiness
 test_that("example dataset produces a SWAT+ Editor-ready database", {
