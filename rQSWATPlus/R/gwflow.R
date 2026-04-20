@@ -536,7 +536,13 @@ qswat_setup_gwflow <- function(project,
   # 4. Assign aquifer thickness
   # ------------------------------------------------------------------
   message("  [gwflow] Assigning aquifer thickness...")
-  cell_thick <- rep(as.numeric(aquifer_thickness[1]), nrow(grid_active))
+  # Resolve the default/fallback thickness once (avoids repeated numeric coercion)
+  default_thick <- if (is.numeric(aquifer_thickness)) {
+    aquifer_thickness[1]
+  } else {
+    20.0  # numeric default when a file path is given
+  }
+  cell_thick <- rep(default_thick, nrow(grid_active))
 
   if (is.character(aquifer_thickness) && file.exists(aquifer_thickness)) {
     ext <- tolower(tools::file_ext(aquifer_thickness))
@@ -549,7 +555,7 @@ qswat_setup_gwflow <- function(project,
       ex_t <- terra::extract(thick_rast, grid_v_aq, fun = "mean", na.rm = TRUE)
       if (ncol(ex_t) >= 2) {
         vals <- ex_t[, 2]
-        vals[is.na(vals) | vals <= 0] <- as.numeric(aquifer_thickness[1])
+        vals[is.na(vals) | vals <= 0] <- default_thick
         cell_thick <- as.numeric(vals)
       }
     } else if (ext %in% c("shp", "gpkg", "geojson")) {
@@ -572,7 +578,7 @@ qswat_setup_gwflow <- function(project,
         )
         idx <- match(grid_active$cell_id, t_agg$cell_id)
         vals <- t_agg$x[idx]
-        vals[is.na(vals) | vals <= 0] <- as.numeric(aquifer_thickness[1])
+        vals[is.na(vals) | vals <= 0] <- default_thick
         cell_thick <- as.numeric(vals)
       }
     }
@@ -592,7 +598,13 @@ qswat_setup_gwflow <- function(project,
     if ("aquifer_k" %in% names(k_sf)) {
       k_col <- "aquifer_k"
     } else if ("logK_Ferr_" %in% names(k_sf)) {
-      # GLHYMPS convention: logK_Ferr_ is logK * 100 → convert to m/day
+      # GLHYMPS convention: logK_Ferr_ is log10(K_intrinsic) × 100 (m²).
+      # Convert to hydraulic conductivity K [m/day]:
+      #   K_intrinsic [m²] → K_saturated [m/s] via:  K_sat = K_intr * ρg/μ
+      #     ρ = 1000 kg/m³ (water density)
+      #     g = 9.81 m/s²  (gravitational acceleration)
+      #     μ = 0.001 Pa·s (dynamic viscosity at ~20 °C)
+      #   Then convert [m/s] → [m/day]:  × 86400 s/day
       k_sf$aquifer_k <- (10^(k_sf$logK_Ferr_ / 100)) * 1000 * 9.81 / 0.001 * 86400
       k_col <- "aquifer_k"
     } else {

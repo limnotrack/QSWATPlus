@@ -503,7 +503,7 @@ qswat_check_database <- function(db_file, verbose = TRUE) {
         )
 
         hru_recharge <- recharge == 1L || recharge == 3L
-        lsu_recharge <- recharge >= 2L
+        lsu_recharge <- recharge == 2L || recharge == 3L
 
         if (hru_recharge) {
           n_hru <- DBI::dbGetQuery(
